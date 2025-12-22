@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Member Registration - Tenkei</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        .fade-in {
+            animation: fadeIn 0.5s ease-in;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body
+    class="bg-gradient-to-br from-slate-900 to-slate-800 min-h-screen flex items-center justify-center font-sans text-slate-100 py-12 px-4">
+
+    <div class="w-full max-w-2xl p-8 bg-slate-800/50 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
+                Member Registration
+            </h1>
+            <p class="text-slate-400 mt-2">Complete your profile to join the dojo.</p>
+        </div>
+
+        <div id="form-container">
+            {{ template "register-form" . }}
+        </div>
+    </div>
+
+    {{ define "register-form" }}
+    <form hx-post="/register" hx-target="#form-container" hx-swap="innerHTML" class="space-y-6">
+
+        {{ if .Error }}
+        <div
+            class="bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-3 rounded-lg text-sm flex items-center gap-2 fade-in">
+            <svg class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            {{ .Error }}
+        </div>
+        {{ end }}
+
+        <!-- Section: Personal Information -->
+        <div class="space-y-4">
+            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Personal Information</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Full Name <span
+                            class="text-red-400">*</span></label>
+                    <input type="text" name="name" value="{{ .Name }}" required
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        placeholder="Your full name">
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Email Address</label>
+                    <input type="email" name="email" value="{{ .Email }}"
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        placeholder="you@domain.com">
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">WhatsApp Number <span
+                            class="text-red-400">*</span></label>
+                    <input type="tel" name="whatsapp" value="{{ .WhatsApp }}" required
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        placeholder="+62 812 3456 7890">
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Date of Birth</label>
+                    <input type="date" name="date_of_birth" value="{{ .DateOfBirth }}"
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
+                </div>
+            </div>
+        </div>
+
+        <!-- Section: Account Security -->
+        <div class="space-y-4">
+            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Account Security</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Password <span
+                            class="text-red-400">*</span></label>
+                    <input type="password" name="password" required
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        placeholder="••••••••">
+                    <p class="text-xs text-slate-500">Must be at least 8 characters.</p>
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Confirm Password <span
+                            class="text-red-400">*</span></label>
+                    <input type="password" name="password_confirm" required
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        placeholder="••••••••">
+                </div>
+            </div>
+        </div>
+
+        <!-- Section: Training Information -->
+        <div class="space-y-4">
+            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Training Information</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Dojo</label>
+                    <input type="text" name="dojo" value="{{ .Dojo }}"
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        placeholder="Your training dojo">
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Current Rank</label>
+                    <select name="rank"
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
+                        <option value="">Select your rank</option>
+                        <option value="10th Kyu" {{ if eq .Rank "10th Kyu" }}selected{{ end }}>10th Kyu (White Belt)
+                        </option>
+                        <option value="9th Kyu" {{ if eq .Rank "9th Kyu" }}selected{{ end }}>9th Kyu</option>
+                        <option value="8th Kyu" {{ if eq .Rank "8th Kyu" }}selected{{ end }}>8th Kyu</option>
+                        <option value="7th Kyu" {{ if eq .Rank "7th Kyu" }}selected{{ end }}>7th Kyu</option>
+                        <option value="6th Kyu" {{ if eq .Rank "6th Kyu" }}selected{{ end }}>6th Kyu</option>
+                        <option value="5th Kyu" {{ if eq .Rank "5th Kyu" }}selected{{ end }}>5th Kyu</option>
+                        <option value="4th Kyu" {{ if eq .Rank "4th Kyu" }}selected{{ end }}>4th Kyu</option>
+                        <option value="3rd Kyu" {{ if eq .Rank "3rd Kyu" }}selected{{ end }}>3rd Kyu</option>
+                        <option value="2nd Kyu" {{ if eq .Rank "2nd Kyu" }}selected{{ end }}>2nd Kyu</option>
+                        <option value="1st Kyu" {{ if eq .Rank "1st Kyu" }}selected{{ end }}>1st Kyu</option>
+                        <option value="Shodan" {{ if eq .Rank "Shodan" }}selected{{ end }}>Shodan (1st Dan)</option>
+                        <option value="Nidan" {{ if eq .Rank "Nidan" }}selected{{ end }}>Nidan (2nd Dan)</option>
+                        <option value="Sandan" {{ if eq .Rank "Sandan" }}selected{{ end }}>Sandan (3rd Dan)</option>
+                        <option value="Yondan" {{ if eq .Rank "Yondan" }}selected{{ end }}>Yondan (4th Dan)</option>
+                        <option value="Godan" {{ if eq .Rank "Godan" }}selected{{ end }}>Godan (5th Dan)</option>
+                    </select>
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Last Grading Date</label>
+                    <input type="date" name="last_grading_date" value="{{ .LastGradingDate }}"
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Role <span
+                            class="text-red-400">*</span></label>
+                    <select name="role" required
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
+                        <option value="">Select your role</option>
+                        <option value="student" {{ if eq .Role "student" }}selected{{ end }}>Student</option>
+                        <option value="instructor" {{ if eq .Role "instructor" }}selected{{ end }}>Instructor</option>
+                        <option value="admin" {{ if eq .Role "admin" }}selected{{ end }}>Admin</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section: Emergency Contact -->
+        <div class="space-y-4">
+            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Emergency Contact</h2>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Emergency Contact Name</label>
+                    <input type="text" name="emergency_contact_name" value="{{ .EmergencyContactName }}"
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        placeholder="Contact name">
+                </div>
+
+                <div class="space-y-1">
+                    <label class="block text-sm font-medium text-slate-300">Emergency Contact Number</label>
+                    <input type="tel" name="emergency_contact_number" value="{{ .EmergencyContactNumber }}"
+                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        placeholder="+62 xxx xxxx xxxx">
+                </div>
+            </div>
+        </div>
+
+        <!-- Section: Medical Information -->
+        <div class="space-y-4">
+            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Medical Information</h2>
+
+            <div class="space-y-1">
+                <label class="block text-sm font-medium text-slate-300">Medical Conditions</label>
+                <textarea name="medical_conditions" rows="3"
+                    class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600 resize-none"
+                    placeholder="Please list any medical conditions, allergies, or injuries we should be aware of...">{{ .MedicalConditions }}</textarea>
+            </div>
+        </div>
+
+        <!-- Section: Consent -->
+        <div class="space-y-4">
+            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Consent & Agreements</h2>
+
+            <div class="space-y-3">
+                <label class="flex items-start gap-3 cursor-pointer group">
+                    <input type="checkbox" name="consent_datastore" value="true" {{ if .ConsentDataStore }}checked{{ end
+                        }} required
+                        class="mt-1 w-5 h-5 bg-slate-900/50 border-2 border-slate-600 rounded text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer">
+                    <span class="text-sm text-slate-300 group-hover:text-slate-100 transition-colors">
+                        I consent to the storage and processing of my personal data for membership purposes. <span
+                            class="text-red-400">*</span>
+                    </span>
+                </label>
+
+                <label class="flex items-start gap-3 cursor-pointer group">
+                    <input type="checkbox" name="consent_marketing" value="true" {{ if .ConsentMarketingEmails
+                        }}checked{{ end }}
+                        class="mt-1 w-5 h-5 bg-slate-900/50 border-2 border-slate-600 rounded text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer">
+                    <span class="text-sm text-slate-300 group-hover:text-slate-100 transition-colors">
+                        I would like to receive news, updates, and promotional emails.
+                    </span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Submit Button -->
+        <button type="submit"
+            class="w-full bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-semibold py-3 rounded-lg shadow-lg shadow-blue-500/20 transition-all transform active:scale-95 flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+            <span>Complete Registration</span>
+            <svg class="htmx-indicator w-5 h-5 animate-spin text-white/80" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+        </button>
+
+        <p class="text-center text-sm text-slate-500">
+            Already have an account? <a href="/login" class="text-blue-400 hover:text-blue-300 underline">Sign in</a>
+        </p>
+    </form>
+    {{ end }}
+
+    {{ define "register-success" }}
+    <div class="text-center py-8 fade-in">
+        <div class="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+        </div>
+        <h3 class="text-xl font-bold text-white mb-2">Registration Complete!</h3>
+        <p class="text-slate-400 mb-4">Welcome to the dojo, <span class="text-emerald-400">{{ .Name }}</span>!</p>
+        <p class="text-slate-400 mb-6">A confirmation has been sent to your WhatsApp.</p>
+        <a href="/login"
+            class="inline-block bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-semibold py-2 px-6 rounded-lg transition-all">
+            Proceed to Login
+        </a>
+    </div>
+    {{ end }}
+
+</body>
+
+</html>

@@ -1,0 +1,27 @@
+{
+	"name": "Go & PostgreSQL",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "app",
+	"workspaceFolder": "/workspace",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"golang.Go",
+                "mtxr.sqltools",
+                "mtxr.sqltools-driver-pg"
+			]
+		}
+	},
+
+	"remoteUser": "vscode",
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils:2": {},
+	},
+
+    // Forward the DB port so you can connect from your host machine (e.g. TablePlus/DBeaver)
+  // Note: Inside the Go code, you connect to localhost:5432 because of network_mode: service:db
+  "forwardPorts": [5437],
+
+	// Install Go tools after the container starts
+	"postCreateCommand": "bash .devcontainer/post-create.sh"
+}
