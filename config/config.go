@@ -63,6 +63,9 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetEnvPrefix("APP")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
+	// Cloud Run needs the PORT variable, so bind it explicitly
+	viper.BindEnv("server.port", "PORT")
+
 	// 4. Unmarshal into Struct
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {

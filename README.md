@@ -5,7 +5,7 @@ This repository uses VS Code Dev Containers and Docker Compose to provide a repr
 ## Overview
 
 - Go service defined in [main.go](main.go) and supporting packages under [internal/](internal).
-- Postgres runs as a sidecar service via [.dev/docker-compose.yml](.dev/docker-compose.yml).
+- Postgres runs as a sidecar service via [.dev/docker-compose.yml](.dev/docker-compose.yml) during development but may point elsewhere for production.
 - Dev Container config is in [.dev/devcontainer.json](.dev/devcontainer.json).
 
 ## Prerequisites
@@ -15,13 +15,10 @@ This repository uses VS Code Dev Containers and Docker Compose to provide a repr
 
 ## Quick Start
 
-- VS Code: "Dev Containers: Rebuild and Reopen in Container" on this folder.
-- CLI:
+- VS Code: Open the project and open in container.
+- The main app runs on port 8080
+- Database can be access on db:5432
 
-```bash
-# From the repo root
-devcontainer up --workspace-folder .
-```
 
 The Dev Container mounts the workspace at `/workspace` and runs `go mod download` on first create.
 
@@ -36,19 +33,11 @@ The Dev Container mounts the workspace at `/workspace` and runs `go mod download
 ## Configuration
 
 - Compose environment in [.dev/docker-compose.yml](.dev/docker-compose.yml):
-  - `POSTGRES_USER`: `user`
+  - `POSTGRES_USER`: `db_user`
   - `POSTGRES_PASSWORD`: `db_password`
   - `POSTGRES_DB`: `tenkei`
-- App environment:
-  - `DATABASE_URL` (on the app service): `postgres://dev:dev@db:5432/tenkei?sslmode=disable`
-
-Important: Align the credentials. Right now `DATABASE_URL` and the healthcheck (`pg_isready -U dev`) use `dev`, while the database is configured with `user`/`db_password`. Update either the compose env or `DATABASE_URL` so they match.
-
-Example aligned `DATABASE_URL`:
-
-```bash
-postgres://user:db_password@db:5432/tenkei?sslmode=disable
-```
+- Config.yaml.config:
+  - `database.connection_+string` (on the app service): `postgres://db_user:db_password@db:5432/tenkei?sslmode=disable`
 
 Go toolchain: [go.mod](go.mod) declares Go `1.25.5`. The devcontainer image tracks Go 1.x; if you need to pin to exactly 1.25, we can switch to a tagged image.
 
@@ -57,14 +46,14 @@ Go toolchain: [go.mod](go.mod) declares Go `1.25.5`. The devcontainer image trac
 Start/refresh the database:
 
 ```bash
-docker compose -f .dev/docker-compose.yml pull db
-docker compose -f .dev/docker-compose.yml up -d db
+docker compose -f .devcontainer/docker-compose.yml pull db
+docker compose -f .devcontainer/docker-compose.yml up -d db
 ```
 
 Stop the database:
 
 ```bash
-docker compose -f .dev/docker-compose.yml down
+docker compose -f .devcontainer/docker-compose.yml down
 ```
 
 Run the application inside the Dev Container:
@@ -81,17 +70,20 @@ Note: Ensure your server listens (e.g., `http.ListenAndServe(":8080", router)`),
 Connect to Postgres from the host (Linux/macOS):
 
 ```bash
-psql "postgres://user:db_password@localhost:5432/tenkei?sslmode=disable"
+psql "postgres://db_user:db_password@localhost:5437/tenkei?sslmode=disable"
 ```
 
 Or from the container:
 
 ```bash
-docker exec -it dev-db-1 psql -U user -d tenkei
+docker exec -it dev-db-1 psql -U db_user -d tenkei
+
+or
+
+psql "postgres://db_user:db_password@db:5432/tenkei?sslmode=disable"
 ```
 
 ## Troubleshooting
 
-- Healthcheck failure: If the DB healthcheck uses `-U dev` but `POSTGRES_USER` is `user`, update the healthcheck to `pg_isready -U user -d tenkei` or align the env vars.
+- Healthcheck failure: If the DB healthcheck uses `-U db_user` but `POSTGRES_USER` is `user`, update the healthcheck to `pg_isready -U user -d tenkei` or align the env vars.
 - Module download: If `postCreateCommand` didn0t run, manually execute `go mod download` in the Dev Container.
-
