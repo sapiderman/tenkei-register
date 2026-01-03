@@ -3,7 +3,6 @@ package register
 
 import (
 	"html"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -14,19 +13,19 @@ import (
 // RegistrationFormData holds form data and validation state for template rendering.
 type RegistrationFormData struct {
 	// Form values
-	Name                   string
 	Email                  string
+	Name                   string
 	WhatsApp               string
 	DateOfBirth            string
 	Dojo                   string
 	Rank                   string
 	LastGradingDate        string
 	Role                   string
+	ConsentDataStore       bool
+	ConsentMarketingEmails bool
 	MedicalConditions      string
 	EmergencyContactName   string
 	EmergencyContactNumber string
-	ConsentDataStore       bool
-	ConsentMarketingEmails bool
 
 	// Error message for display
 	Error string
@@ -86,7 +85,7 @@ var allowedRoles = map[string]bool{
 func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	// Parse form data
 	if err := req.ParseForm(); err != nil {
-		r.logger.Error().Err(err).Msg("failed to parse form")
+		r.logger.Debug().Caller().Err(err).Msg("failed to parse form")
 		http.Error(w, "Invalid form data", http.StatusBadRequest)
 		return
 	}
@@ -116,11 +115,13 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	// Required field: Name
 	if formData.Name == "" {
 		formData.Error = "Name is required."
+		r.logger.Warn().Caller().Msg("Name is required")
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
 	if len(formData.Name) > 255 {
 		formData.Error = "Name is too long (max 255 characters)."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
@@ -128,11 +129,13 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	// Required field: WhatsApp
 	if formData.WhatsApp == "" {
 		formData.Error = "WhatsApp number is required."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
 	if len(formData.WhatsApp) > 20 {
 		formData.Error = "WhatsApp number is too long."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
@@ -141,6 +144,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if formData.Email != "" {
 		if err := r.validate.Var(formData.Email, "email"); err != nil {
 			formData.Error = "Invalid email address."
+			r.logger.Warn().Caller().Msg(formData.Error)
 			r.renderRegistrationBlock(w, "register-form", formData)
 			return
 		}
@@ -149,21 +153,25 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	// Required field: Password
 	if password == "" {
 		formData.Error = "Password is required."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
 	if len(password) < 8 {
 		formData.Error = "Password must be at least 8 characters."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
 	if len(password) > 72 { // bcrypt limit
 		formData.Error = "Password is too long (max 72 characters)."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
 	if password != passwordConfirm {
 		formData.Error = "Passwords do not match."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
@@ -171,18 +179,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	// Validate rank (must be from allowed list)
 	if !allowedRanks[formData.Rank] {
 		formData.Error = "Invalid rank selected."
-		r.renderRegistrationBlock(w, "register-form", formData)
-		return
-	}
-
-	// Required field: Role (must be from allowed list)
-	if formData.Role == "" {
-		formData.Error = "Role is required."
-		r.renderRegistrationBlock(w, "register-form", formData)
-		return
-	}
-	if !allowedRoles[formData.Role] {
-		formData.Error = "Invalid role selected."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
@@ -190,6 +187,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	// Required: Data storage consent
 	if !formData.ConsentDataStore {
 		formData.Error = "You must consent to data storage to register."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
@@ -197,21 +195,25 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	// Validate field lengths for security
 	if len(formData.Dojo) > 255 {
 		formData.Error = "Dojo name is too long."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
 	if len(formData.MedicalConditions) > 2000 {
 		formData.Error = "Medical conditions text is too long."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
 	if len(formData.EmergencyContactName) > 255 {
 		formData.Error = "Emergency contact name is too long."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
 	if len(formData.EmergencyContactNumber) > 20 {
 		formData.Error = "Emergency contact number is too long."
+		r.logger.Warn().Caller().Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
@@ -242,15 +244,18 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		EmergencyContactNumber: formData.EmergencyContactNumber,
 	}
 
+	// hard coded defaults
+	user.Role = "user"
+
 	// --- Insert into database ---
 	if err := r.dbInsertUser(req.Context(), &user); err != nil {
-		r.logger.Error().Err(err).Msg("failed to insert user")
 		// Check for duplicate email/whatsapp
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
 			formData.Error = "An account with this email or WhatsApp number already exists."
 		} else {
 			formData.Error = "Registration failed. Please try again later."
 		}
+		r.logger.Error().Caller().Err(err).Msg(formData.Error)
 		r.renderRegistrationBlock(w, "register-form", formData)
 		return
 	}
@@ -264,7 +269,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 func (r *registrar) showPage(w http.ResponseWriter, req *http.Request) {
 	err := r.templates.ExecuteTemplate(w, "register.html", RegistrationFormData{})
 	if err != nil {
-		r.logger.Error().Err(err).Msg("failed to render register page")
+		r.logger.Error().Caller().Err(err).Msg("failed to render register page")
 		http.Error(w, "Template Error", http.StatusInternalServerError)
 	}
 }
@@ -273,7 +278,6 @@ func (r *registrar) showPage(w http.ResponseWriter, req *http.Request) {
 func (r *registrar) renderRegistrationBlock(w http.ResponseWriter, blockName string, data RegistrationFormData) {
 	err := r.templates.ExecuteTemplate(w, blockName, data)
 	if err != nil {
-		log.Println("Render Error:", err)
 		http.Error(w, "Render Error", http.StatusInternalServerError)
 	}
 }

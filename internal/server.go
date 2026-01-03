@@ -1,3 +1,4 @@
+// Package internal with server.go as the main server setup and management file
 package internal
 
 import (
@@ -45,7 +46,7 @@ func StartServer(ctx context.Context) {
 	server.validator = validator.New()
 	server.database = db
 
-	server.handler, err = NewHttpHandler(ctx, server.database)
+	server.handler, err = NewHTTPHandler(ctx, server.database)
 	if err != nil {
 		server.logger.Error().Err(err).Msg("Failed to initialize HTTP handler")
 		return

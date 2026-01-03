@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS users (
     "last_grading_date" timestamptz,
  
     "role" varchar DEFAULT 'user',
-    "consent_data_store" timestamptz,
-    "consent_marketing_emails" boolean DEFAULT false,
+    "consent_datastore" boolean DEFAULT false,
+    "consent_marketing" boolean DEFAULT false,
 
     "medical_conditions" text,
     "emergency_contact_name" varchar,
