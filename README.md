@@ -17,8 +17,7 @@ This repository uses VS Code Dev Containers and Docker Compose to provide a repr
 
 - VS Code: Open the project and open in container.
 - The main app runs on port 8080
-- Database can be access on db:5432
-
+- Database can be access on db:5432 from the container.
 
 The Dev Container mounts the workspace at `/workspace` and runs `go mod download` on first create.
 
