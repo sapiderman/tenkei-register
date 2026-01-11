@@ -42,7 +42,7 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetConfigType("yaml")   // Default format
 
 	// 1. Set Defaults
-	viper.SetDefault("server.port", 8080)
+	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "development")
 	viper.SetDefault("server.read_header_timeout", "5s")
 
