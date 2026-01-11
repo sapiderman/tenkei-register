@@ -15,11 +15,12 @@ func (h *queryHook) BeforeQuery(ctx context.Context, event *bun.QueryEvent) cont
 }
 
 func (h *queryHook) AfterQuery(ctx context.Context, event *bun.QueryEvent) {
-	dur := time.Since(event.StartTime)
+	duration := time.Since(event.StartTime)
 	if event.Err != nil {
-		log.Error().Err(event.Err).Dur("duration", dur).Msg(event.Query)
+		log.Error().Caller().Err(event.Err).Dur("duration", duration).Msg(event.Query)
 		return
 	}
 
-	log.Debug().Dur("duration", dur).Msg(event.Query)
+	log.Debug().Caller().Dur("duration", duration).Msg(event.Query)
+
 }

@@ -3,6 +3,7 @@ package database
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/rs/zerolog/log"
 
@@ -17,11 +18,16 @@ type Database struct {
 
 func New(dsn string) (*Database, error) {
 	db := bun.NewDB(sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn))), pgdialect.New())
-	db.AddQueryHook(&queryHook{})
+	db.WithQueryHook(&queryHook{})
 	if err := db.Ping(); err != nil {
-		log.Fatal().Err(err).Msg("failed to ping database")
+		log.Error().Caller().Err(err).Msg("failed to ping database")
 		return nil, err
 	}
+	log.Info().Caller().Msg("db OK: db ponged when pinged.")
+
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(5 * time.Minute)
 
 	return &Database{DB: db}, nil
 }

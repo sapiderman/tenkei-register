@@ -25,7 +25,7 @@ type User struct {
 
 	Role                   string `bun:"role,notnull"`
 	ConsentDataStore       bool   `bun:"consent_datastore,notnull,default:false"`
-	ConsentMarketingEmails bool   `bun:"consent_marketingemails,notnull,default:false"`
+	ConsentMarketingEmails bool   `bun:"consent_marketing,notnull,default:false"`
 
 	MedicalConditions      string `bun:"medical_conditions"`
 	EmergencyContactName   string `bun:"emergency_contact_name"`

@@ -43,7 +43,7 @@
     </div>
 
     {{ define "register-form" }}
-    <form hx-post="/register" hx-target="#form-container" hx-swap="innerHTML" class="space-y-6">
+    <form hx-post="/v1/register" hx-target="#form-container" hx-swap="innerHTML" class="space-y-6">
 
         {{ if .Error }}
         <div
@@ -123,9 +123,15 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-1">
                     <label class="block text-sm font-medium text-slate-300">Dojo</label>
-                    <input type="text" name="dojo" value="{{ .Dojo }}"
+                    <input type="text" name="dojo" value="{{ .Dojo }}" list="dojo-options"
                         class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
-                        placeholder="Your training dojo">
+                        placeholder="Click to select or type your dojo">
+                    <datalist id="dojo-options">
+                        <option value="Tenkei University Indonesia">
+                        <option value="Tenkei Mayapada">
+                        <option value="Tenkei Taman Menteng">
+                        <option value="Tenkei Nurul Badar">
+                    </datalist>
                 </div>
 
                 <div class="space-y-1">
@@ -152,22 +158,10 @@
                     </select>
                 </div>
 
-                <div class="space-y-1">
+                <div class="space-y-1 md:col-span-2">
                     <label class="block text-sm font-medium text-slate-300">Last Grading Date</label>
                     <input type="date" name="last_grading_date" value="{{ .LastGradingDate }}"
                         class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
-                </div>
-
-                <div class="space-y-1">
-                    <label class="block text-sm font-medium text-slate-300">Role <span
-                            class="text-red-400">*</span></label>
-                    <select name="role" required
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
-                        <option value="">Select your role</option>
-                        <option value="student" {{ if eq .Role "student" }}selected{{ end }}>Student</option>
-                        <option value="instructor" {{ if eq .Role "instructor" }}selected{{ end }}>Instructor</option>
-                        <option value="admin" {{ if eq .Role "admin" }}selected{{ end }}>Admin</option>
-                    </select>
                 </div>
             </div>
         </div>

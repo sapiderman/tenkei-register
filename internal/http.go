@@ -14,7 +14,7 @@ import (
 	"github.com/sapiderman/tenkei-register/internal/register"
 )
 
-func NewHttpHandler(ctx context.Context, db *database.Database) (http.Handler, error) {
+func NewHTTPHandler(ctx context.Context, db *database.Database) (http.Handler, error) {
 	validator := validator.New()
 
 	r := chi.NewRouter()
@@ -22,7 +22,7 @@ func NewHttpHandler(ctx context.Context, db *database.Database) (http.Handler, e
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	// r.Use(customMiddleware.AccessLog)
+	r.Use(middleware.Logger)
 	r.Use(middleware.Heartbeat("/health"))
 
 	r.Use(middleware.Timeout(60 * time.Second))
