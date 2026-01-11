@@ -38,7 +38,7 @@ func StartServer(ctx context.Context) {
 
 	db, err := database.New(config.Database.ConnectionString)
 	if err != nil {
-		log.Fatal().Caller().Err(err).Msg("Failed to initialize database")
+		log.Fatal().Caller().Err(err).Msg("db didnt want to play pong")
 		return
 	}
 
