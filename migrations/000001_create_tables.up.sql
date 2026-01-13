@@ -5,8 +5,8 @@ CREATE SEQUENCE IF NOT EXISTS audit_id_seq;
 -- Table Definition
 CREATE TABLE IF NOT EXISTS users (
     "id" int4 NOT NULL DEFAULT nextval('users_id_seq'::regclass),
-    "created_at" timestamptz,
-    "updated_at" timestamptz,
+    "created_at" timestamptz DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" timestamptz DEFAULT CURRENT_TIMESTAMP,
 
     "email" varchar,
     "name" varchar,
@@ -14,9 +14,9 @@ CREATE TABLE IF NOT EXISTS users (
     "password_hash" varchar NOT NULL,
     "join_date" timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "dojo" varchar,
-    "date_of_birth" timestamptz,
+    "date_of_birth" DATE,
     "rank" varchar,
-    "last_grading_date" timestamptz,
+    "last_grading_date" DATE,
  
     "role" varchar DEFAULT 'user',
     "consent_datastore" boolean DEFAULT false,
@@ -31,10 +31,10 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS audit (
     "id" int4 NOT NULL DEFAULT nextval('audit_id_seq'::regclass),
-    "created_at" timestamptz,
-    "updated_at" timestamptz,
+    "created_at" timestamptz DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" timestamptz DEFAULT CURRENT_TIMESTAMP,
 
-    "whatsapp" varchar,
+    "user_id" varchar,
     "action" varchar,
 
     PRIMARY KEY ("id")
@@ -42,3 +42,6 @@ CREATE TABLE IF NOT EXISTS audit (
 
 -- Indices
 CREATE UNIQUE INDEX users_whatsapp_idx ON users USING btree (whatsapp_number);
+CREATE UNIQUE INDEX users_email_idx ON users USING btree (email);
+CREATE INDEX users_join_idx ON users USING btree (join_date);
+CREATE INDEX audit_whatsapp_idx ON audit USING btree (whatsapp);

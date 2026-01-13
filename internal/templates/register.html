@@ -7,6 +7,7 @@
     <title>Member Registration - Tenkei</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
         .fade-in {
             animation: fadeIn 0.5s ease-in;
@@ -103,7 +104,8 @@
                     <input type="password" name="password" required
                         class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
                         placeholder="••••••••">
-                    <p class="text-xs text-slate-500">Must be at least 8 characters.</p>
+                    <p class="text-xs text-slate-500">Must be at least 8 characters, a password manager is
+                        recommended.</p>
                 </div>
 
                 <div class="space-y-1">
@@ -121,17 +123,40 @@
             <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Training Information</h2>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="space-y-1">
+                <div class="space-y-1" x-data="{
+                        open: false,
+                        search: '',
+                        init() { this.search = $el.querySelector('input[name=dojo]').value },
+                        options: [
+                            'Tenkei University Indonesia',
+                            'Tenkei Mayapada',
+                            'Tenkei Taman Menteng',
+                            'Tenkei Nurul Badar'
+                        ],
+                        get filteredOptions() {
+                            return this.options.filter(i => i.toLowerCase().includes(this.search.toLowerCase()))
+                        }
+                    }" @click.outside="open = false">
                     <label class="block text-sm font-medium text-slate-300">Dojo</label>
-                    <input type="text" name="dojo" value="{{ .Dojo }}" list="dojo-options"
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
-                        placeholder="Click to select or type your dojo">
-                    <datalist id="dojo-options">
-                        <option value="Tenkei University Indonesia">
-                        <option value="Tenkei Mayapada">
-                        <option value="Tenkei Taman Menteng">
-                        <option value="Tenkei Nurul Badar">
-                    </datalist>
+                    <div class="relative">
+                        <input type="text" name="dojo" value="{{ .Dojo }}" x-model="search" @focus="open = true"
+                            @input="open = true"
+                            class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                            placeholder="Click to select or type your dojo" autocomplete="off">
+
+                        <!-- Dropdown -->
+                        <div x-show="open && filteredOptions.length > 0" x-transition.opacity.duration.200ms
+                            class="absolute z-10 w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                            <ul class="py-1">
+                                <template x-for="option in filteredOptions" :key="option">
+                                    <li @click="search = option; open = false"
+                                        class="px-4 py-2 hover:bg-slate-700/50 cursor-pointer text-slate-200 transition-colors"
+                                        x-text="option">
+                                    </li>
+                                </template>
+                            </ul>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="space-y-1">

@@ -8,22 +8,22 @@ services:
     command: sleep infinity
     # network_mode: service:db # TRICK: This lets 'app' talk to 'db' as if it were localhost
     depends_on:
-      - db:
-          condition: service_healthy
+      db:
+        condition: service_healthy
 
   db:
     image: postgres:17-alpine
     restart: unless-stopped
     ports:
-      - 5437:5432
+      - 5439:5432
     volumes:
       - users:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-db_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-db_password}
-      POSTGRES_DB: users
+      POSTGRES_DB: tenkei
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U db_user -d users" ]
+      test: [ "CMD-SHELL", "pg_isready -U db_user -d tenkei" ]
       interval: 5s
       timeout: 5s
       start_period: 10s
