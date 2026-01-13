@@ -28,14 +28,14 @@
 </head>
 
 <body
-    class="bg-gradient-to-br from-slate-900 to-slate-800 min-h-screen flex items-center justify-center font-sans text-slate-100 py-12 px-4">
+    class="bg-gradient-to-br from-zinc-50 to-slate-200 min-h-screen flex items-center justify-center font-sans text-gray-900 py-12 px-4">
 
-    <div class="w-full max-w-2xl p-8 bg-slate-800/50 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl">
+    <div class="w-full max-w-2xl p-8 bg-white/80 backdrop-blur-md border border-white/50 rounded-2xl shadow-2xl">
         <div class="text-center mb-8">
-            <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
-                Member Registration
+            <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-700 to-emerald-600">
+                Tenkei Registration
             </h1>
-            <p class="text-slate-400 mt-2">Complete your profile to join the dojo.</p>
+            <p class="text-gray-500 mt-2">Complete your profile to register.</p>
         </div>
 
         <div id="form-container">
@@ -48,8 +48,8 @@
 
         {{ if .Error }}
         <div
-            class="bg-red-500/10 border border-red-500/20 text-red-200 px-4 py-3 rounded-lg text-sm flex items-center gap-2 fade-in">
-            <svg class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            class="bg-red-500/10 border border-red-500/20 text-red-600 px-4 py-3 rounded-lg text-sm flex items-center gap-2 fade-in">
+            <svg class="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -59,60 +59,60 @@
 
         <!-- Section: Personal Information -->
         <div class="space-y-4">
-            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Personal Information</h2>
+            <h2 class="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">Personal Information</h2>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-1">
-                    <label class="block text-sm font-medium text-slate-300">Full Name <span
-                            class="text-red-400">*</span></label>
+                    <label class="block text-sm font-medium text-gray-700">Full Name <span
+                            class="text-red-500">*</span></label>
                     <input type="text" name="name" value="{{ .Name }}" required
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400"
                         placeholder="Your full name">
                 </div>
 
                 <div class="space-y-1">
-                    <label class="block text-sm font-medium text-slate-300">Email Address</label>
+                    <label class="block text-sm font-medium text-gray-700">Email Address</label>
                     <input type="email" name="email" value="{{ .Email }}"
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400"
                         placeholder="you@domain.com">
                 </div>
 
                 <div class="space-y-1">
-                    <label class="block text-sm font-medium text-slate-300">WhatsApp Number <span
-                            class="text-red-400">*</span></label>
+                    <label class="block text-sm font-medium text-gray-700">WhatsApp Number <span
+                            class="text-red-500">*</span></label>
                     <input type="tel" name="whatsapp" value="{{ .WhatsApp }}" required
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400"
                         placeholder="+62 812 3456 7890">
                 </div>
 
                 <div class="space-y-1">
-                    <label class="block text-sm font-medium text-slate-300">Date of Birth</label>
+                    <label class="block text-sm font-medium text-gray-700">Date of Birth</label>
                     <input type="date" name="date_of_birth" value="{{ .DateOfBirth }}"
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
+                        class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
                 </div>
             </div>
         </div>
 
         <!-- Section: Account Security -->
         <div class="space-y-4">
-            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Account Security</h2>
+            <h2 class="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">Account Security</h2>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-1">
-                    <label class="block text-sm font-medium text-slate-300">Password <span
-                            class="text-red-400">*</span></label>
+                    <label class="block text-sm font-medium text-gray-700">Password <span
+                            class="text-red-500">*</span></label>
                     <input type="password" name="password" required
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400"
                         placeholder="••••••••">
-                    <p class="text-xs text-slate-500">Must be at least 8 characters, a password manager is
+                    <p class="text-xs text-gray-500">Must be at least 8 characters, a password manager is
                         recommended.</p>
                 </div>
 
                 <div class="space-y-1">
-                    <label class="block text-sm font-medium text-slate-300">Confirm Password <span
-                            class="text-red-400">*</span></label>
+                    <label class="block text-sm font-medium text-gray-700">Confirm Password <span
+                            class="text-red-500">*</span></label>
                     <input type="password" name="password_confirm" required
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400"
                         placeholder="••••••••">
                 </div>
             </div>
@@ -120,7 +120,7 @@
 
         <!-- Section: Training Information -->
         <div class="space-y-4">
-            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Training Information</h2>
+            <h2 class="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">Training Information</h2>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-1" x-data="{
@@ -137,20 +137,20 @@
                             return this.options.filter(i => i.toLowerCase().includes(this.search.toLowerCase()))
                         }
                     }" @click.outside="open = false">
-                    <label class="block text-sm font-medium text-slate-300">Dojo</label>
+                    <label class="block text-sm font-medium text-gray-700">Dojo</label>
                     <div class="relative">
                         <input type="text" name="dojo" value="{{ .Dojo }}" x-model="search" @focus="open = true"
                             @input="open = true"
-                            class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                            class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400"
                             placeholder="Click to select or type your dojo" autocomplete="off">
 
                         <!-- Dropdown -->
                         <div x-show="open && filteredOptions.length > 0" x-transition.opacity.duration.200ms
-                            class="absolute z-10 w-full mt-1 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                            class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
                             <ul class="py-1">
                                 <template x-for="option in filteredOptions" :key="option">
                                     <li @click="search = option; open = false"
-                                        class="px-4 py-2 hover:bg-slate-700/50 cursor-pointer text-slate-200 transition-colors"
+                                        class="px-4 py-2 hover:bg-gray-100 cursor-pointer text-gray-800 transition-colors"
                                         x-text="option">
                                     </li>
                                 </template>
@@ -160,9 +160,9 @@
                 </div>
 
                 <div class="space-y-1">
-                    <label class="block text-sm font-medium text-slate-300">Current Rank</label>
+                    <label class="block text-sm font-medium text-gray-700">Current Rank</label>
                     <select name="rank"
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
+                        class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
                         <option value="">Select your rank</option>
                         <option value="10th Kyu" {{ if eq .Rank "10th Kyu" }}selected{{ end }}>10th Kyu (White Belt)
                         </option>
@@ -184,29 +184,29 @@
                 </div>
 
                 <div class="space-y-1 md:col-span-2">
-                    <label class="block text-sm font-medium text-slate-300">Last Grading Date</label>
+                    <label class="block text-sm font-medium text-gray-700">Last Grading Date</label>
                     <input type="date" name="last_grading_date" value="{{ .LastGradingDate }}"
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
+                        class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all">
                 </div>
             </div>
         </div>
 
         <!-- Section: Emergency Contact -->
         <div class="space-y-4">
-            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Emergency Contact</h2>
+            <h2 class="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">Emergency Contact</h2>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="space-y-1">
-                    <label class="block text-sm font-medium text-slate-300">Emergency Contact Name</label>
+                    <label class="block text-sm font-medium text-gray-700">Emergency Contact Name</label>
                     <input type="text" name="emergency_contact_name" value="{{ .EmergencyContactName }}"
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400"
                         placeholder="Contact name">
                 </div>
 
                 <div class="space-y-1">
-                    <label class="block text-sm font-medium text-slate-300">Emergency Contact Number</label>
+                    <label class="block text-sm font-medium text-gray-700">Emergency Contact Number</label>
                     <input type="tel" name="emergency_contact_number" value="{{ .EmergencyContactNumber }}"
-                        class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600"
+                        class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400"
                         placeholder="+62 xxx xxxx xxxx">
                 </div>
             </div>
@@ -214,36 +214,36 @@
 
         <!-- Section: Medical Information -->
         <div class="space-y-4">
-            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Medical Information</h2>
+            <h2 class="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">Medical Information</h2>
 
             <div class="space-y-1">
-                <label class="block text-sm font-medium text-slate-300">Medical Conditions</label>
+                <label class="block text-sm font-medium text-gray-700">Medical Conditions</label>
                 <textarea name="medical_conditions" rows="3"
-                    class="w-full bg-slate-900/50 border border-slate-600 rounded-lg px-4 py-2.5 text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-slate-600 resize-none"
+                    class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400 resize-none"
                     placeholder="Please list any medical conditions, allergies, or injuries we should be aware of...">{{ .MedicalConditions }}</textarea>
             </div>
         </div>
 
         <!-- Section: Consent -->
         <div class="space-y-4">
-            <h2 class="text-lg font-semibold text-slate-200 border-b border-slate-600 pb-2">Consent & Agreements</h2>
+            <h2 class="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2">Consent & Agreements</h2>
 
             <div class="space-y-3">
                 <label class="flex items-start gap-3 cursor-pointer group">
                     <input type="checkbox" name="consent_datastore" value="true" {{ if .ConsentDataStore }}checked{{ end
                         }} required
-                        class="mt-1 w-5 h-5 bg-slate-900/50 border-2 border-slate-600 rounded text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer">
-                    <span class="text-sm text-slate-300 group-hover:text-slate-100 transition-colors">
+                        class="mt-1 w-5 h-5 bg-white border-2 border-gray-300 rounded text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer">
+                    <span class="text-sm text-gray-600 group-hover:text-gray-900 transition-colors">
                         I consent to the storage and processing of my personal data for membership purposes. <span
-                            class="text-red-400">*</span>
+                            class="text-red-500">*</span>
                     </span>
                 </label>
 
                 <label class="flex items-start gap-3 cursor-pointer group">
                     <input type="checkbox" name="consent_marketing" value="true" {{ if .ConsentMarketingEmails
                         }}checked{{ end }}
-                        class="mt-1 w-5 h-5 bg-slate-900/50 border-2 border-slate-600 rounded text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer">
-                    <span class="text-sm text-slate-300 group-hover:text-slate-100 transition-colors">
+                        class="mt-1 w-5 h-5 bg-white border-2 border-gray-300 rounded text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer">
+                    <span class="text-sm text-gray-600 group-hover:text-gray-900 transition-colors">
                         I would like to receive news, updates, and promotional emails.
                     </span>
                 </label>
@@ -260,24 +260,24 @@
             </svg>
         </button>
 
-        <p class="text-center text-sm text-slate-500">
-            Already have an account? <a href="/login" class="text-blue-400 hover:text-blue-300 underline">Sign in</a>
+        <p class="text-center text-sm text-gray-500">
+            Already have an account? <a href="/login" class="text-blue-600 hover:text-blue-500 underline">Sign in</a>
         </p>
     </form>
     {{ end }}
 
     {{ define "register-success" }}
     <div class="text-center py-8 fade-in">
-        <div class="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg class="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div class="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
             </svg>
         </div>
-        <h3 class="text-xl font-bold text-white mb-2">Registration Complete!</h3>
-        <p class="text-slate-400 mb-4">Welcome to the dojo, <span class="text-emerald-400">{{ .Name }}</span>!</p>
-        <p class="text-slate-400 mb-6">A confirmation has been sent to your WhatsApp.</p>
+        <h3 class="text-xl font-bold text-gray-900 mb-2">Registration Complete!</h3>
+        <p class="text-gray-600 mb-4">Welcome to the dojo, <span class="text-emerald-600 font-semibold">{{ .Name }}</span>!</p>
+        <p class="text-gray-600 mb-6">A confirmation has been sent to your WhatsApp.</p>
         <a href="/login"
-            class="inline-block bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-semibold py-2 px-6 rounded-lg transition-all">
+            class="inline-block bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-semibold py-2 px-6 rounded-lg transition-all shadow-lg shadow-emerald-500/20">
             Proceed to Login
         </a>
     </div>
