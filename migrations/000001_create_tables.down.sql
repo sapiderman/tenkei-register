@@ -3,3 +3,4 @@ DROP SEQUENCE IF EXISTS audit_id_seq;
 
 DROP TABLE IF EXISTS users;
 DROP SEQUENCE IF EXISTS users_id_seq;
+

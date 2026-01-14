@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS audit (
     "created_at" timestamptz DEFAULT CURRENT_TIMESTAMP,
     "updated_at" timestamptz DEFAULT CURRENT_TIMESTAMP,
 
-    "user_id" varchar,
+    "user_id" int4,
     "action" varchar,
 
     PRIMARY KEY ("id")
@@ -44,4 +44,4 @@ CREATE TABLE IF NOT EXISTS audit (
 CREATE UNIQUE INDEX users_whatsapp_idx ON users USING btree (whatsapp_number);
 CREATE UNIQUE INDEX users_email_idx ON users USING btree (email);
 CREATE INDEX users_join_idx ON users USING btree (join_date);
-CREATE INDEX audit_whatsapp_idx ON audit USING btree (whatsapp);
+CREATE INDEX audit_user_idx ON audit USING btree (user_id);
