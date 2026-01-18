@@ -104,7 +104,7 @@
                     <input type="password" name="password" required
                         class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400"
                         placeholder="••••••••">
-                    <p class="text-xs text-gray-500">Must be at least 8 characters, a password manager is
+                    <p class="text-xs text-gray-500">Must be at least 8 characters, a password manager is highly
                         recommended.</p>
                 </div>
 
@@ -220,7 +220,7 @@
                 <label class="block text-sm font-medium text-gray-700">Medical Conditions</label>
                 <textarea name="medical_conditions" rows="3"
                     class="w-full bg-white border border-gray-300 rounded-lg px-4 py-2.5 text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all placeholder-gray-400 resize-none"
-                    placeholder="Please list any medical conditions, allergies, or injuries we should be aware of...">{{ .MedicalConditions }}</textarea>
+                    placeholder="(Optional) Please list any medical conditions, allergies, or injuries we should be aware of ex: asthma">{{ .MedicalConditions }}</textarea>
             </div>
         </div>
 
@@ -244,7 +244,7 @@
                         }}checked{{ end }}
                         class="mt-1 w-5 h-5 bg-white border-2 border-gray-300 rounded text-blue-500 focus:ring-2 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer">
                     <span class="text-sm text-gray-600 group-hover:text-gray-900 transition-colors">
-                        I would like to receive news, updates, and promotional emails.
+                        (Optional) I would like to receive news, updates, and promotional emails.
                     </span>
                 </label>
             </div>
@@ -274,7 +274,8 @@
             </svg>
         </div>
         <h3 class="text-xl font-bold text-gray-900 mb-2">Registration Complete!</h3>
-        <p class="text-gray-600 mb-4">Welcome to the dojo, <span class="text-emerald-600 font-semibold">{{ .Name }}</span>!</p>
+        <p class="text-gray-600 mb-4">Welcome to the dojo, <span class="text-emerald-600 font-semibold">{{ .Name
+                }}</span>!</p>
         <p class="text-gray-600 mb-6">A confirmation has been sent to your WhatsApp.</p>
         <a href="https://tenkeiaikidojo.org"
             class="inline-block bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-semibold py-2 px-6 rounded-lg transition-all shadow-lg shadow-emerald-500/20">

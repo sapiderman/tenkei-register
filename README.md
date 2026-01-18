@@ -1,17 +1,12 @@
-# Tenkei Register – Dev Setup
+# Tenkei Register
 
-This repository uses VS Code Dev Containers and Docker Compose to provide a reproducible Go + Postgres development environment.
+This repository handles back end services.
 
-## Overview
+## Development Overview
 
-- Go service defined in [main.go](main.go) and supporting packages under [internal/](internal).
-- Postgres runs as a sidecar service via [.dev/docker-compose.yml](.dev/docker-compose.yml) during development but may point elsewhere for production.
-- Dev Container config is in [.dev/devcontainer.json](.dev/devcontainer.json).
-
-## Prerequisites
-
-- Docker and the Docker Compose plugin
-- VS Code with Dev Containers extension; or `devcontainer` CLI
+- The stack is based on Golang 1.25.x
+- Data is stored in Postgres database.
+- Routes are handled using chi router.
 
 ## Quick Start
 
@@ -81,8 +76,3 @@ or
 
 psql "postgres://db_user:db_password@db:5432/tenkei?sslmode=disable"
 ```
-
-## Troubleshooting
-
-- Healthcheck failure: If the DB healthcheck uses `-U db_user` but `POSTGRES_USER` is `user`, update the healthcheck to `pg_isready -U user -d tenkei` or align the env vars.
-- Module download: If `postCreateCommand` didn0t run, manually execute `go mod download` in the Dev Container.
