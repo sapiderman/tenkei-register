@@ -2,8 +2,10 @@
 package register
 
 import (
+	"encoding/json"
 	"html"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -13,19 +15,20 @@ import (
 // RegistrationFormData holds form data and validation state for template rendering.
 type RegistrationFormData struct {
 	// Form values
-	Email                  string
-	Name                   string
-	WhatsApp               string
-	DateOfBirth            string
-	Dojo                   string
-	Rank                   string
-	LastGradingDate        string
-	Role                   string
-	ConsentDataStore       bool
-	ConsentMarketingEmails bool
-	MedicalConditions      string
-	EmergencyContactName   string
-	EmergencyContactNumber string
+	Email                  string `json:"email"`
+	Name                   string `json:"name"`
+	WhatsApp               string `json:"whatsapp"`
+	DateOfBirth            string `json:"date_of_birth"`
+	Dojo                   string `json:"dojo"`
+	Rank                   string `json:"rank"`
+	LastGradingDate        string `json:"last_grading_date"`
+	Role                   string `json:"role"`
+	ConsentDataStore       bool   `json:"consent_datastore"`
+	ConsentMarketingEmails bool   `json:"consent_marketing"`
+	MedicalConditions      string `json:"medical_conditions"`
+	EmergencyContactName   string `json:"emergency_contact_name"`
+	EmergencyContactNumber string `json:"emergency_contact_number"`
+	cf_turnstile_response  string `json:"cf_turnstile_response"`
 
 	// Error message for display
 	Error string
@@ -34,6 +37,23 @@ type RegistrationFormData struct {
 // sanitizeInput trims whitespace and escapes HTML to prevent XSS attacks.
 func sanitizeInput(input string) string {
 	return html.EscapeString(strings.TrimSpace(input))
+}
+
+// sanitizeFormData applies sanitizeInput to all string fields in RegistrationFormData.
+func sanitizeFormData(d RegistrationFormData) RegistrationFormData {
+	d.Email = sanitizeInput(d.Email)
+	d.Name = sanitizeInput(d.Name)
+	d.WhatsApp = sanitizeInput(d.WhatsApp)
+	d.DateOfBirth = sanitizeInput(d.DateOfBirth)
+	d.Dojo = sanitizeInput(d.Dojo)
+	d.Rank = sanitizeInput(d.Rank)
+	d.LastGradingDate = sanitizeInput(d.LastGradingDate)
+	d.Role = sanitizeInput(d.Role)
+	d.MedicalConditions = sanitizeInput(d.MedicalConditions)
+	d.EmergencyContactName = sanitizeInput(d.EmergencyContactName)
+	d.EmergencyContactNumber = sanitizeInput(d.EmergencyContactNumber)
+	d.cf_turnstile_response = sanitizeInput(d.cf_turnstile_response)
+	return d
 }
 
 // parseDate safely parses a date string in YYYY-MM-DD format.
@@ -82,47 +102,136 @@ var allowedRoles = map[string]bool{
 	"admin":      true,
 }
 
+// wantsJSON checks if the client expects or sends JSON.
+func wantsJSON(req *http.Request) bool {
+	ct := strings.ToLower(req.Header.Get("Content-Type"))
+	accept := strings.ToLower(req.Header.Get("Accept"))
+	return strings.Contains(ct, "application/json") || strings.Contains(accept, "application/json")
+}
+
+// writeJSON writes a JSON response with the given status code.
+func writeJSON(w http.ResponseWriter, status int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (r *registrar) verifyTurnstileResponse(token string) bool {
+	if r.turnstileSecret == "" {
+		r.logger.Error().Msg("TURNSTILE_SECRET_KEY not configured")
+		return false
+	}
+
+	form := url.Values{}
+	form.Add("secret", r.turnstileSecret)
+	form.Add("response", token)
+
+	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", form)
+	if err != nil {
+		r.logger.Error().Err(err).Msg("Turnstile verification error")
+		return false
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		r.logger.Error().Err(err).Msg("Failed to decode Turnstile response")
+		return false
+	}
+
+	return result.Success
+}
+
 func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
-	// Parse form data
-	if err := req.ParseForm(); err != nil {
-		r.logger.Debug().Caller().Err(err).Msg("failed to parse form")
-		http.Error(w, "Invalid form data", http.StatusBadRequest)
+	isJSON := wantsJSON(req)
+
+	var formData RegistrationFormData
+	var password string
+	var passwordConfirm string
+
+	if isJSON {
+		// Decode JSON body
+		type apiRegistrationRequest struct {
+			RegistrationFormData `json:",inline"`
+			Password             string `json:"password"`
+			PasswordConfirm      string `json:"password_confirm"`
+		}
+
+		var payload apiRegistrationRequest
+		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+			r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
+			return
+		}
+
+		// Ensure checkbox values are respected if coming as strings (already bool in JSON)
+		formData = sanitizeFormData(payload.RegistrationFormData)
+		password = payload.Password
+		passwordConfirm = payload.PasswordConfirm
+	} else {
+		// Parse form data
+		if err := req.ParseForm(); err != nil {
+			r.logger.Debug().Caller().Err(err).Msg("failed to parse form")
+			http.Error(w, "Invalid form data", http.StatusBadRequest)
+			return
+		}
+
+		// Extract and sanitize all form values
+		formData = RegistrationFormData{
+			Name:                   sanitizeInput(req.FormValue("name")),
+			Email:                  sanitizeInput(req.FormValue("email")),
+			WhatsApp:               sanitizeInput(req.FormValue("whatsapp")),
+			DateOfBirth:            sanitizeInput(req.FormValue("date_of_birth")),
+			Dojo:                   sanitizeInput(req.FormValue("dojo")),
+			Rank:                   sanitizeInput(req.FormValue("rank")),
+			LastGradingDate:        sanitizeInput(req.FormValue("last_grading_date")),
+			Role:                   sanitizeInput(req.FormValue("role")),
+			MedicalConditions:      sanitizeInput(req.FormValue("medical_conditions")),
+			EmergencyContactName:   sanitizeInput(req.FormValue("emergency_contact_name")),
+			EmergencyContactNumber: sanitizeInput(req.FormValue("emergency_contact_number")),
+			ConsentDataStore:       parseCheckbox(req.FormValue("consent_datastore")),
+			ConsentMarketingEmails: parseCheckbox(req.FormValue("consent_marketing")),
+			cf_turnstile_response:  sanitizeInput(req.FormValue("cf_turnstile_response")),
+		}
+
+		password = req.FormValue("password")
+		passwordConfirm = req.FormValue("password_confirm")
+	}
+
+	// Verify Turnstile response
+	turnstileToken := formData.cf_turnstile_response
+	if !r.verifyTurnstileResponse(turnstileToken) {
+		formData.Error = "Security verification failed. Please try again."
+		r.logger.Warn().Caller().Msg(formData.Error)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
-
-	// Extract and sanitize all form values
-	formData := RegistrationFormData{
-		Name:                   sanitizeInput(req.FormValue("name")),
-		Email:                  sanitizeInput(req.FormValue("email")),
-		WhatsApp:               sanitizeInput(req.FormValue("whatsapp")),
-		DateOfBirth:            sanitizeInput(req.FormValue("date_of_birth")),
-		Dojo:                   sanitizeInput(req.FormValue("dojo")),
-		Rank:                   sanitizeInput(req.FormValue("rank")),
-		LastGradingDate:        sanitizeInput(req.FormValue("last_grading_date")),
-		Role:                   sanitizeInput(req.FormValue("role")),
-		MedicalConditions:      sanitizeInput(req.FormValue("medical_conditions")),
-		EmergencyContactName:   sanitizeInput(req.FormValue("emergency_contact_name")),
-		EmergencyContactNumber: sanitizeInput(req.FormValue("emergency_contact_number")),
-		ConsentDataStore:       parseCheckbox(req.FormValue("consent_datastore")),
-		ConsentMarketingEmails: parseCheckbox(req.FormValue("consent_marketing")),
-	}
-
-	password := req.FormValue("password")
-	passwordConfirm := req.FormValue("password_confirm")
-
-	// --- Validation ---
 
 	// Required field: Name
 	if formData.Name == "" {
 		formData.Error = "Name is required."
 		r.logger.Warn().Caller().Msg("Name is required")
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 	if len(formData.Name) > 255 {
 		formData.Error = "Name is too long (max 255 characters)."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 
@@ -130,13 +239,21 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if formData.WhatsApp == "" {
 		formData.Error = "WhatsApp number is required."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 	if len(formData.WhatsApp) > 20 {
 		formData.Error = "WhatsApp number is too long."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 
@@ -145,7 +262,11 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		if err := r.validate.Var(formData.Email, "email"); err != nil {
 			formData.Error = "Invalid email address."
 			r.logger.Warn().Caller().Msg(formData.Error)
-			r.renderRegistrationBlock(w, "register-form", formData)
+			if isJSON {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+			} else {
+				r.renderRegistrationBlock(w, "register-form", formData)
+			}
 			return
 		}
 	}
@@ -154,25 +275,41 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if password == "" {
 		formData.Error = "Password is required."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 	if len(password) < 8 {
 		formData.Error = "Password must be at least 8 characters."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 	if len(password) > 72 { // bcrypt limit
 		formData.Error = "Password is too long (max 72 characters)."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 	if password != passwordConfirm {
 		formData.Error = "Passwords do not match."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 
@@ -180,7 +317,11 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if !allowedRanks[formData.Rank] {
 		formData.Error = "Invalid rank selected."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 
@@ -188,7 +329,11 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if !formData.ConsentDataStore {
 		formData.Error = "You must consent to data storage to register."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 
@@ -196,25 +341,41 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if len(formData.Dojo) > 255 {
 		formData.Error = "Dojo name is too long."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 	if len(formData.MedicalConditions) > 2000 {
 		formData.Error = "Medical conditions text is too long."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 	if len(formData.EmergencyContactName) > 255 {
 		formData.Error = "Emergency contact name is too long."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 	if len(formData.EmergencyContactNumber) > 20 {
 		formData.Error = "Emergency contact number is too long."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 
@@ -256,14 +417,22 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 			formData.Error = "Registration failed. Please try again later."
 		}
 		r.logger.Error().Caller().Err(err).Msg(formData.Error)
-		r.renderRegistrationBlock(w, "register-form", formData)
+		if isJSON {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": formData.Error})
+		} else {
+			r.renderRegistrationBlock(w, "register-form", formData)
+		}
 		return
 	}
 
 	r.logger.Info().Str("name", user.Name).Str("whatsapp", user.WhatsApp).Msg("user registered successfully")
 
 	// --- Success ---
-	r.renderRegistrationBlock(w, "register-success", formData)
+	if isJSON {
+		writeJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
+	} else {
+		r.renderRegistrationBlock(w, "register-success", formData)
+	}
 }
 
 func (r *registrar) showPage(w http.ResponseWriter, req *http.Request) {

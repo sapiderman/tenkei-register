@@ -10,11 +10,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
+	"github.com/sapiderman/tenkei-register/config"
 	"github.com/sapiderman/tenkei-register/internal/database"
 	"github.com/sapiderman/tenkei-register/internal/register"
 )
 
-func NewHTTPHandler(ctx context.Context, db *database.Database) (http.Handler, error) {
+func NewHTTPHandler(ctx context.Context, db *database.Database, cfg *config.Config) (http.Handler, error) {
 	validator := validator.New()
 
 	r := chi.NewRouter()
@@ -28,7 +29,7 @@ func NewHTTPHandler(ctx context.Context, db *database.Database) (http.Handler, e
 	r.Use(middleware.Timeout(60 * time.Second))
 	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
-	register.NewRouter(ctx, r, log, validator, db.DB)
+	register.NewRouter(ctx, r, log, validator, db.DB, cfg)
 
 	return r, nil
 }

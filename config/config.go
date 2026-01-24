@@ -30,6 +30,7 @@ type ServerConfig struct {
 	Port              string `mapstructure:"port"`
 	Mode              string `mapstructure:"mode"`
 	ReadHeaderTimeout string `mapstructure:"read_header_timeout"`
+	TurnstileSecret   string `mapstructure:"turnstile_secret_key"`
 }
 
 type DatabaseConfig struct {
@@ -59,8 +60,8 @@ func LoadConfig(path string) (*Config, error) {
 	// 3. Configure Environment Variables
 	viper.AutomaticEnv() // Read ENV variables
 
-	// Allow mapping "database.host" to "APP_DATABASE_HOST"
-	viper.SetEnvPrefix("APP")
+	// Allow mapping "database.host" to "TENKEI_DATABASE_HOST"
+	viper.SetEnvPrefix("TENKEI")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
 	// Cloud Run needs the PORT variable, so bind it explicitly
