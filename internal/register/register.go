@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sapiderman/tenkei-register/internal/server"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -95,13 +96,6 @@ var allowedRanks = map[string]bool{
 	"Godan":    true,
 }
 
-// allowedRoles defines the valid role values for validation.
-var allowedRoles = map[string]bool{
-	"student":    true,
-	"instructor": true,
-	"admin":      true,
-}
-
 // wantsJSON checks if the client expects or sends JSON.
 func wantsJSON(req *http.Request) bool {
 	ct := strings.ToLower(req.Header.Get("Content-Type"))
@@ -114,6 +108,16 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// RenderError implements server.ErrorResponder interface
+func (r *registrar) RenderError(w http.ResponseWriter, blockName string, data interface{}) {
+	formData, ok := data.(RegistrationFormData)
+	if !ok {
+		http.Error(w, "Internal Error", http.StatusInternalServerError)
+		return
+	}
+	r.renderRegistrationBlock(w, blockName, formData)
 }
 
 func (r *registrar) verifyTurnstileResponse(token string) bool {
@@ -205,11 +209,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if !r.verifyTurnstileResponse(turnstileToken) {
 		formData.Error = "Security verification failed. Please try again."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 
@@ -217,21 +217,13 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if formData.Name == "" {
 		formData.Error = "Name is required."
 		r.logger.Warn().Caller().Msg("Name is required")
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 	if len(formData.Name) > 255 {
 		formData.Error = "Name is too long (max 255 characters)."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 
@@ -239,21 +231,13 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if formData.WhatsApp == "" {
 		formData.Error = "WhatsApp number is required."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 	if len(formData.WhatsApp) > 20 {
 		formData.Error = "WhatsApp number is too long."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 
@@ -262,11 +246,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		if err := r.validate.Var(formData.Email, "email"); err != nil {
 			formData.Error = "Invalid email address."
 			r.logger.Warn().Caller().Msg(formData.Error)
-			if isJSON {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-			} else {
-				r.renderRegistrationBlock(w, "register-form", formData)
-			}
+			server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 			return
 		}
 	}
@@ -275,41 +255,25 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if password == "" {
 		formData.Error = "Password is required."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 	if len(password) < 8 {
 		formData.Error = "Password must be at least 8 characters."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 	if len(password) > 72 { // bcrypt limit
 		formData.Error = "Password is too long (max 72 characters)."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 	if password != passwordConfirm {
 		formData.Error = "Passwords do not match."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 
@@ -317,11 +281,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if !allowedRanks[formData.Rank] {
 		formData.Error = "Invalid rank selected."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 
@@ -329,11 +289,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if !formData.ConsentDataStore {
 		formData.Error = "You must consent to data storage to register."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 
@@ -341,41 +297,25 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	if len(formData.Dojo) > 255 {
 		formData.Error = "Dojo name is too long."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 	if len(formData.MedicalConditions) > 2000 {
 		formData.Error = "Medical conditions text is too long."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 	if len(formData.EmergencyContactName) > 255 {
 		formData.Error = "Emergency contact name is too long."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 	if len(formData.EmergencyContactNumber) > 20 {
 		formData.Error = "Emergency contact number is too long."
 		r.logger.Warn().Caller().Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}
 
@@ -417,22 +357,14 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 			formData.Error = "Registration failed. Please try again later."
 		}
 		r.logger.Error().Caller().Err(err).Msg(formData.Error)
-		if isJSON {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": formData.Error})
-		} else {
-			r.renderRegistrationBlock(w, "register-form", formData)
-		}
+		server.SendError(w, isJSON, http.StatusConflict, formData.Error, r, "register-form", formData)
 		return
 	}
 
 	r.logger.Info().Str("name", user.Name).Str("whatsapp", user.WhatsApp).Msg("user registered successfully")
 
 	// --- Success ---
-	if isJSON {
-		writeJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
-	} else {
-		r.renderRegistrationBlock(w, "register-success", formData)
-	}
+	server.SendSuccess(w, isJSON, http.StatusCreated, r, "register-success", formData)
 }
 
 func (r *registrar) showPage(w http.ResponseWriter, req *http.Request) {
