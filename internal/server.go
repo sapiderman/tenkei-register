@@ -46,7 +46,7 @@ func StartServer(ctx context.Context) {
 	server.validator = validator.New()
 	server.database = db
 
-	server.handler, err = NewHTTPHandler(ctx, server.database)
+	server.handler, err = NewHTTPHandler(ctx, server.database, config)
 	if err != nil {
 		server.logger.Error().Err(err).Msg("Failed to initialize HTTP handler")
 		return
