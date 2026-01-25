@@ -1,3 +1,4 @@
+// Package server provides utilities for handling server actions/responses
 package server
 
 import (
@@ -5,7 +6,6 @@ import (
 	"net/http"
 )
 
-// ErrorResponder handles both JSON and HTML error responses
 type ErrorResponder interface {
 	RenderError(w http.ResponseWriter, blockName string, data interface{})
 }
@@ -17,17 +17,19 @@ func SendError(w http.ResponseWriter, isJSON bool, statusCode int, errorMsg stri
 		w.WriteHeader(statusCode)
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": errorMsg})
 	} else {
+		w.WriteHeader(statusCode)
 		responder.RenderError(w, blockName, data)
 	}
 }
 
-// SendSuccess sends a success response in JSON or HTML format based on client preference
-func SendSuccess(w http.ResponseWriter, isJSON bool, statusCode int, responder ErrorResponder, blockName string, data interface{}) {
+// SendResponse sends a success response in JSON or HTML format based on client preference
+func SendResponse(w http.ResponseWriter, isJSON bool, statusCode int, responder ErrorResponder, blockName string, data interface{}) {
 	if isJSON {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(statusCode)
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	} else {
+		w.WriteHeader(statusCode)
 		responder.RenderError(w, blockName, data)
 	}
 }

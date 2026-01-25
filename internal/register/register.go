@@ -4,6 +4,7 @@ package register
 import (
 	"encoding/json"
 	"html"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -29,7 +30,7 @@ type RegistrationFormData struct {
 	MedicalConditions      string `json:"medical_conditions"`
 	EmergencyContactName   string `json:"emergency_contact_name"`
 	EmergencyContactNumber string `json:"emergency_contact_number"`
-	cf_turnstile_response  string `json:"cf_turnstile_response"`
+	CfTurnstileResponse    string `json:"cf_turnstile_response"`
 
 	// Error message for display
 	Error string
@@ -53,7 +54,7 @@ func sanitizeFormData(d RegistrationFormData) RegistrationFormData {
 	d.MedicalConditions = sanitizeInput(d.MedicalConditions)
 	d.EmergencyContactName = sanitizeInput(d.EmergencyContactName)
 	d.EmergencyContactNumber = sanitizeInput(d.EmergencyContactNumber)
-	d.cf_turnstile_response = sanitizeInput(d.cf_turnstile_response)
+	d.CfTurnstileResponse = sanitizeInput(d.CfTurnstileResponse)
 	return d
 }
 
@@ -120,7 +121,7 @@ func (r *registrar) RenderError(w http.ResponseWriter, blockName string, data in
 	r.renderRegistrationBlock(w, blockName, formData)
 }
 
-func (r *registrar) verifyTurnstileResponse(token string) bool {
+func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) bool {
 	if r.turnstileSecret == "" {
 		r.logger.Error().Msg("TURNSTILE_SECRET_KEY not configured")
 		return false
@@ -129,6 +130,23 @@ func (r *registrar) verifyTurnstileResponse(token string) bool {
 	form := url.Values{}
 	form.Add("secret", r.turnstileSecret)
 	form.Add("response", token)
+
+	// Optionally add the user's IP address here (prefer X-Forwarded-For, then X-Real-IP, then RemoteAddr)
+	var remoteIP string
+	if fwd := req.Header.Get("X-Forwarded-For"); fwd != "" {
+		remoteIP = strings.TrimSpace(strings.Split(fwd, ",")[0])
+	} else if rip := req.Header.Get("X-Real-IP"); rip != "" {
+		remoteIP = strings.TrimSpace(rip)
+	} else {
+		if host, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
+			remoteIP = host
+		} else {
+			remoteIP = req.RemoteAddr
+		}
+	}
+	if remoteIP != "" {
+		form.Add("remoteip", remoteIP)
+	}
 
 	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", form)
 	if err != nil {
@@ -197,7 +215,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 			EmergencyContactNumber: sanitizeInput(req.FormValue("emergency_contact_number")),
 			ConsentDataStore:       parseCheckbox(req.FormValue("consent_datastore")),
 			ConsentMarketingEmails: parseCheckbox(req.FormValue("consent_marketing")),
-			cf_turnstile_response:  sanitizeInput(req.FormValue("cf_turnstile_response")),
+			CfTurnstileResponse:    req.FormValue("cf_turnstile_response"),
 		}
 
 		password = req.FormValue("password")
@@ -205,8 +223,8 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Verify Turnstile response
-	turnstileToken := formData.cf_turnstile_response
-	if !r.verifyTurnstileResponse(turnstileToken) {
+	turnstileToken := formData.CfTurnstileResponse
+	if !r.verifyTurnstileResponse(req, turnstileToken) {
 		formData.Error = "Security verification failed. Please try again."
 		r.logger.Warn().Caller().Msg(formData.Error)
 		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
@@ -345,7 +363,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		EmergencyContactNumber: formData.EmergencyContactNumber,
 	}
 
-	// hard coded defaults
+	// hard coded defaults for now
 	user.Role = "user"
 
 	// --- Insert into database ---
@@ -363,8 +381,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 
 	r.logger.Info().Str("name", user.Name).Str("whatsapp", user.WhatsApp).Msg("user registered successfully")
 
-	// --- Success ---
-	server.SendSuccess(w, isJSON, http.StatusCreated, r, "register-success", formData)
+	server.SendResponse(w, isJSON, http.StatusCreated, r, "register-success", formData)
 }
 
 func (r *registrar) showPage(w http.ResponseWriter, req *http.Request) {
