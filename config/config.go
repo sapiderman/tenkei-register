@@ -33,6 +33,7 @@ type ServerConfig struct {
 	Mode              string `mapstructure:"mode"`
 	ReadHeaderTimeout string `mapstructure:"read_header_timeout"`
 	TurnstileSecret   string `mapstructure:"turnstile_secret_key"`
+	Version           string `mapstructure:"version"`
 }
 
 type DatabaseConfig struct {
@@ -48,6 +49,7 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "development")
 	viper.SetDefault("server.read_header_timeout", "5s")
+	viper.SetDefault("server.version", "0.0.1")
 
 	// 2. Load Config File
 	if err := viper.ReadInConfig(); err != nil {
@@ -67,8 +69,8 @@ func LoadConfig(path string) (*Config, error) {
 	// Cloud Run needs the PORT variable, so bind it explicitly
 	viper.BindEnv("server.port", "PORT")
 
-	viper.BindEnv("server.turnstile_secret_key", "TURNSTILE_SECRET_KEY", "TENKEI_SERVER_TURNSTILE_SECRET_KEY")
-	viper.BindEnv("database.connection_string", "DATABASE_CONNECTION_STRING", "TENKEI_DATABASE_CONNECTION_STRING")
+	viper.BindEnv("server.turnstile_secret_key", "TENKEI_SERVER_TURNSTILE_SECRET_KEY")
+	viper.BindEnv("database.connection_string", "TENKEI_DATABASE_CONNECTION_STRING")
 
 	// 4. Unmarshal into Struct
 	var cfg Config
@@ -86,5 +88,7 @@ func LoadConfig(path string) (*Config, error) {
 	if strings.TrimSpace(cfg.Database.ConnectionString) == "" {
 		return nil, errors.New("database.connection_string not configured *******************************")
 	}
+
+	SetInitialized(true)
 	return &cfg, nil
 }

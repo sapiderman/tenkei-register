@@ -137,6 +137,12 @@ func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) err
 	form.Add("secret", r.turnstileSecret)
 	form.Add("response", token)
 
+	// bypass verification for now:
+	if r.turnstileSecret == "bypass-turnstile-verification" {
+		r.logger.Info().Msg("Bypassing Turnstile verification")
+		return nil
+	}
+
 	// Optionally add the user's IP address here (prefer X-Forwarded-For, then X-Real-IP, then RemoteAddr)
 	var remoteIP string
 	if fwd := req.Header.Get("X-Forwarded-For"); fwd != "" {
