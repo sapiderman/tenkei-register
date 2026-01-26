@@ -67,7 +67,7 @@ func LoadConfig(path string) (*Config, error) {
 	// Cloud Run needs the PORT variable, so bind it explicitly
 	viper.BindEnv("server.port", "PORT")
 
-	viper.BindEnv("server.turnstile_secret_key", "TURNSTILE_SECRET_KEY", "TENKEI_TURNSTILE_SECRET_KEY")
+	viper.BindEnv("server.turnstile_secret_key", "TURNSTILE_SECRET_KEY", "TENKEI_SERVER_TURNSTILE_SECRET_KEY")
 	viper.BindEnv("database.connection_string", "DATABASE_CONNECTION_STRING", "TENKEI_DATABASE_CONNECTION_STRING")
 
 	// 4. Unmarshal into Struct
@@ -78,13 +78,13 @@ func LoadConfig(path string) (*Config, error) {
 
 	// check turnstile secret is setup properly
 	if cfg.Server.TurnstileSecret == "" {
-		return nil, errors.New("TURNSTILE_SECRET_KEY not configured ******************************************")
+		return nil, errors.New("server.turnstile_secret_key not configured ******************************************")
 	} else {
 		log.Info().Msg("Yaay Turnstile secret key is set")
 	}
 
 	if strings.TrimSpace(cfg.Database.ConnectionString) == "" {
-		return nil, errors.New("database connection string not configured *******************************")
+		return nil, errors.New("database.connection_string not configured *******************************")
 	}
 	return &cfg, nil
 }
