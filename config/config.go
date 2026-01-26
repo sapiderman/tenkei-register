@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )
 
@@ -48,8 +49,6 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.mode", "development")
 	viper.SetDefault("server.read_header_timeout", "5s")
 
-	viper.SetDefault("database.connection_string", "postgres://user:password@localhost:5432/tenkei?sslmode=disable")
-
 	// 2. Load Config File
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
@@ -77,7 +76,10 @@ func LoadConfig(path string) (*Config, error) {
 	// check turnstile secret is setup properly
 	if cfg.Server.TurnstileSecret == "" {
 		return nil, errors.New("TURNSTILE_SECRET_KEY not configured ******************************************")
+	} else {
+		log.Info().Msg("Yaay Turnstile secret key is set")
 	}
+
 	if strings.TrimSpace(cfg.Database.ConnectionString) == "" {
 		return nil, errors.New("database connection string not configured *******************************")
 	}
