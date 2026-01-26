@@ -2,9 +2,9 @@
 package config
 
 import (
+	"errors"
 	"strings"
 
-	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
 )
 
@@ -76,7 +76,10 @@ func LoadConfig(path string) (*Config, error) {
 
 	// check turnstile secret is setup properly
 	if cfg.Server.TurnstileSecret == "" {
-		log.Error().Msg("TURNSTILE_SECRET_KEY not configured ******************************************")
+		return nil, errors.New("TURNSTILE_SECRET_KEY not configured ******************************************")
+	}
+	if strings.TrimSpace(cfg.Database.ConnectionString) == "" {
+		return nil, errors.New("database connection string not configured *******************************")
 	}
 	return &cfg, nil
 }
