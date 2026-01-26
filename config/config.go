@@ -58,14 +58,17 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	// 3. Configure Environment Variables
-	viper.AutomaticEnv() // Read ENV variables
-
 	// Allow mapping "database.host" to "TENKEI_DATABASE_HOST"
 	viper.SetEnvPrefix("TENKEI")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv() // Read ENV variables
 
+	// Explicitly bind well-known environment variables for robustness
 	// Cloud Run needs the PORT variable, so bind it explicitly
 	viper.BindEnv("server.port", "PORT")
+
+	viper.BindEnv("server.turnstile_secret_key", "TURNSTILE_SECRET_KEY", "TENKEI_TURNSTILE_SECRET_KEY")
+	viper.BindEnv("database.connection_string", "DATABASE_CONNECTION_STRING", "TENKEI_DATABASE_CONNECTION_STRING")
 
 	// 4. Unmarshal into Struct
 	var cfg Config
