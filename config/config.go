@@ -34,6 +34,7 @@ type ServerConfig struct {
 	ReadHeaderTimeout string `mapstructure:"read_header_timeout"`
 	TurnstileSecret   string `mapstructure:"turnstile_secret_key"`
 	Version           string `mapstructure:"version"`
+	XCFBypass         string `mapstructure:"x_cf_bypass"`
 }
 
 type DatabaseConfig struct {
@@ -71,6 +72,7 @@ func LoadConfig(path string) (*Config, error) {
 
 	viper.BindEnv("server.turnstile_secret_key", "TENKEI_SERVER_TURNSTILE_SECRET_KEY")
 	viper.BindEnv("database.connection_string", "TENKEI_DATABASE_CONNECTION_STRING")
+	viper.BindEnv("server.x_cf_bypass", "TENKEI_SERVER_X_CF_BYPASS")
 
 	// 4. Unmarshal into Struct
 	var cfg Config
