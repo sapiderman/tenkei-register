@@ -50,7 +50,7 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "development")
 	viper.SetDefault("server.read_header_timeout", "5s")
-	viper.SetDefault("server.version", "0.0.1")
+	viper.SetDefault("server.version", "0.0.2-20260201")
 
 	// 2. Load Config File
 	if err := viper.ReadInConfig(); err != nil {
