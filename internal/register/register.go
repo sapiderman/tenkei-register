@@ -3,6 +3,7 @@ package register
 
 import (
 	"encoding/json"
+	"errors"
 	"html"
 	"net"
 	"net/http"
@@ -79,22 +80,22 @@ func parseCheckbox(value string) bool {
 
 // allowedRanks defines the valid rank values for validation.
 var allowedRanks = map[string]bool{
-	"":         true, // empty is allowed
-	"10th Kyu": true,
-	"9th Kyu":  true,
-	"8th Kyu":  true,
-	"7th Kyu":  true,
-	"6th Kyu":  true,
-	"5th Kyu":  true,
-	"4th Kyu":  true,
-	"3rd Kyu":  true,
-	"2nd Kyu":  true,
-	"1st Kyu":  true,
-	"Shodan":   true,
-	"Nidan":    true,
-	"Sandan":   true,
-	"Yondan":   true,
-	"Godan":    true,
+	"":                 true, // empty is allowed
+	"10th Kyu":         true,
+	"9th Kyu":          true,
+	"8th Kyu":          true,
+	"7th Kyu":          true,
+	"6th Kyu":          true,
+	"5th Kyu":          true,
+	"4th Kyu":          true,
+	"3rd Kyu":          true,
+	"2nd Kyu":          true,
+	"1st Kyu":          true,
+	"Shodan (1st Dan)": true,
+	"Nidan (2nd Dan)":  true,
+	"Sandan (3rd Dan)": true,
+	"Yondan (4th Dan)": true,
+	"Godan (5th Dan)":  true,
 }
 
 // wantsJSON checks if the client expects or sends JSON.
@@ -121,15 +122,26 @@ func (r *registrar) RenderError(w http.ResponseWriter, blockName string, data in
 	r.renderRegistrationBlock(w, blockName, formData)
 }
 
-func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) bool {
+func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) error {
 	if r.turnstileSecret == "" {
 		r.logger.Error().Msg("TURNSTILE_SECRET_KEY not configured")
-		return false
+		return errors.New("TURNSTILE_SECRET_KEY not configured")
+	}
+
+	if token == "" {
+		r.logger.Warn().Msg("Turnstile token is empty")
+		return errors.New("turnstile token is empty")
 	}
 
 	form := url.Values{}
 	form.Add("secret", r.turnstileSecret)
 	form.Add("response", token)
+
+	// bypass verification for now:
+	if r.turnstileSecret == "bypass-turnstile-verification" {
+		r.logger.Info().Msg("Bypassing Turnstile verification")
+		return nil
+	}
 
 	// Optionally add the user's IP address here (prefer X-Forwarded-For, then X-Real-IP, then RemoteAddr)
 	var remoteIP string
@@ -148,22 +160,111 @@ func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) boo
 		form.Add("remoteip", remoteIP)
 	}
 
+	r.logger.Debug().
+		Str("remoteIP", remoteIP).
+		Msg("Sending Turnstile verification request")
+
 	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", form)
 	if err != nil {
-		r.logger.Error().Err(err).Msg("Turnstile verification error")
-		return false
+		r.logger.Error().
+			Err(err).
+			Str("remoteIP", remoteIP).
+			Msg("Turnstile HTTP request failed")
+		return err
 	}
 	defer resp.Body.Close()
 
-	var result struct {
-		Success bool `json:"success"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		r.logger.Error().Err(err).Msg("Failed to decode Turnstile response")
-		return false
+	// Check HTTP status code
+	if resp.StatusCode != http.StatusOK {
+		r.logger.Error().
+			Int("statusCode", resp.StatusCode).
+			Str("status", resp.Status).
+			Msg("Turnstile API returned non-OK status")
+		return errors.New("turnstile API returned non-OK status: " + resp.Status)
 	}
 
-	return result.Success
+	// Cloudflare Turnstile response structure
+	// See: https://developers.cloudflare.com/turnstile/get-started/server-side-validation/
+	var result struct {
+		Success     bool     `json:"success"`
+		ChallengeTS string   `json:"challenge_ts"` // ISO timestamp of challenge
+		Hostname    string   `json:"hostname"`     // Hostname of site where challenge was solved
+		ErrorCodes  []string `json:"error-codes"`  // Error codes if verification failed
+		Action      string   `json:"action"`       // Action name (if configured)
+		CData       string   `json:"cdata"`        // Custom data (if configured)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		r.logger.Error().
+			Err(err).
+			Int("statusCode", resp.StatusCode).
+			Msg("Failed to decode Turnstile response")
+		return errors.New("failed to decode turnstile response: " + err.Error())
+	}
+
+	// Log the full response details for debugging
+	logEvent := r.logger.Debug().
+		Bool("success", result.Success).
+		Str("hostname", result.Hostname).
+		Str("challengeTS", result.ChallengeTS).
+		Str("remoteIP", remoteIP)
+
+	if result.Action != "" {
+		logEvent = logEvent.Str("action", result.Action)
+	}
+	if result.CData != "" {
+		logEvent = logEvent.Str("cdata", result.CData)
+	}
+	if len(result.ErrorCodes) > 0 {
+		logEvent = logEvent.Strs("errorCodes", result.ErrorCodes)
+	}
+	logEvent.Msg("Turnstile verification response")
+
+	if !result.Success {
+		// Log error with detailed information from Cloudflare
+		errLogger := r.logger.Error().
+			Strs("errorCodes", result.ErrorCodes).
+			Str("hostname", result.Hostname).
+			Str("challengeTS", result.ChallengeTS).
+			Str("remoteIP", remoteIP)
+
+		// Provide human-readable error descriptions
+		var errorDescriptions []string
+		for _, code := range result.ErrorCodes {
+			switch code {
+			case "missing-input-secret":
+				errorDescriptions = append(errorDescriptions, "The secret parameter was not passed")
+			case "invalid-input-secret":
+				errorDescriptions = append(errorDescriptions, "The secret parameter was invalid or did not exist")
+			case "missing-input-response":
+				errorDescriptions = append(errorDescriptions, "The response parameter was not passed")
+			case "invalid-input-response":
+				errorDescriptions = append(errorDescriptions, "The response parameter is invalid or has expired")
+			case "bad-request":
+				errorDescriptions = append(errorDescriptions, "The request was rejected because it was malformed")
+			case "timeout-or-duplicate":
+				errorDescriptions = append(errorDescriptions, "The response parameter has already been validated before or is too old")
+			case "internal-error":
+				errorDescriptions = append(errorDescriptions, "An internal error happened while validating the response (retry)")
+			default:
+				errorDescriptions = append(errorDescriptions, "Unknown error: "+code)
+			}
+		}
+
+		if len(errorDescriptions) > 0 {
+			errLogger = errLogger.Strs("errorDescriptions", errorDescriptions)
+		}
+
+		errLogger.Msg("Turnstile verification failed")
+		return errors.New("turnstile verification failed: " + strings.Join(result.ErrorCodes, ", "))
+	}
+
+	r.logger.Info().
+		Str("hostname", result.Hostname).
+		Str("remoteIP", remoteIP).
+		Msg("Turnstile verification successful")
+
+	return nil
 }
 
 func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
@@ -224,9 +325,10 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 
 	// Verify Turnstile response
 	turnstileToken := formData.CfTurnstileResponse
-	if !r.verifyTurnstileResponse(req, turnstileToken) {
+	err := r.verifyTurnstileResponse(req, turnstileToken)
+	if err != nil {
 		formData.Error = "Security verification failed. Please try again."
-		r.logger.Warn().Caller().Msg(formData.Error)
+		r.logger.Error().Caller().Err(err).Msg("Turnstile verification failed")
 		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
 	}

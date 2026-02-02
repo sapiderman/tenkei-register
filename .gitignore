@@ -122,3 +122,4 @@ $RECYCLE.BIN/
 config.yaml
 config.
 register-go-img
+logs.json

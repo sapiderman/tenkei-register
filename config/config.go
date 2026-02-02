@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -32,6 +33,8 @@ type ServerConfig struct {
 	Mode              string `mapstructure:"mode"`
 	ReadHeaderTimeout string `mapstructure:"read_header_timeout"`
 	TurnstileSecret   string `mapstructure:"turnstile_secret_key"`
+	Version           string `mapstructure:"version"`
+	XCFBypass         string `mapstructure:"x_cf_bypass"`
 }
 
 type DatabaseConfig struct {
@@ -47,8 +50,7 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "development")
 	viper.SetDefault("server.read_header_timeout", "5s")
-
-	viper.SetDefault("database.connection_string", "postgres://user:password@localhost:5432/tenkei?sslmode=disable")
+	viper.SetDefault("server.version", "0.0.2-20260201")
 
 	// 2. Load Config File
 	if err := viper.ReadInConfig(); err != nil {
@@ -59,14 +61,18 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	// 3. Configure Environment Variables
-	viper.AutomaticEnv() // Read ENV variables
-
 	// Allow mapping "database.host" to "TENKEI_DATABASE_HOST"
 	viper.SetEnvPrefix("TENKEI")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	viper.AutomaticEnv() // Read ENV variables
 
+	// Explicitly bind well-known environment variables for robustness
 	// Cloud Run needs the PORT variable, so bind it explicitly
 	viper.BindEnv("server.port", "PORT")
+
+	viper.BindEnv("server.turnstile_secret_key", "TENKEI_SERVER_TURNSTILE_SECRET_KEY")
+	viper.BindEnv("database.connection_string", "TENKEI_DATABASE_CONNECTION_STRING")
+	viper.BindEnv("server.x_cf_bypass", "TENKEI_SERVER_X_CF_BYPASS")
 
 	// 4. Unmarshal into Struct
 	var cfg Config
@@ -76,7 +82,15 @@ func LoadConfig(path string) (*Config, error) {
 
 	// check turnstile secret is setup properly
 	if cfg.Server.TurnstileSecret == "" {
-		log.Error().Msg("TURNSTILE_SECRET_KEY not configured ******************************************")
+		return nil, errors.New("server.turnstile_secret_key not configured ******************************************")
+	} else {
+		log.Info().Msg("Yaay Turnstile secret key is set")
 	}
+
+	if strings.TrimSpace(cfg.Database.ConnectionString) == "" {
+		return nil, errors.New("database.connection_string not configured *******************************")
+	}
+
+	SetInitialized(true)
 	return &cfg, nil
 }
