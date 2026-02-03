@@ -24,8 +24,8 @@ func NewHTTPHandler(ctx context.Context, db *database.Database, cfg *config.Conf
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Heartbeat("/health"))
 	r.Use(mymiddleware.AccessLog)
+	r.Use(middleware.Heartbeat("/health"))
 	r.Use(mymiddleware.XCFBypass(cfg.Server.XCFBypass))
 
 	r.Use(middleware.Timeout(60 * time.Second))

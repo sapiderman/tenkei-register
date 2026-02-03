@@ -34,7 +34,7 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 
 	r.Route("/v1/register", func(r chi.Router) {
 		r.Post("/", reg.handleSubmission)
-		r.Get("/", reg.showPage)
+		r.Get("/", reg.showRegister)
 		r.Get("/count", reg.getUserCount)
 	})
 

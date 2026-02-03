@@ -35,7 +35,6 @@ func SendResponse(w http.ResponseWriter, isJSON bool, statusCode int, responder 
 }
 
 func SendSimpleResponse(w http.ResponseWriter, statusCode int, message string) {
-
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(statusCode)
 	_ = json.NewEncoder(w).Encode(map[string]string{"message": message})

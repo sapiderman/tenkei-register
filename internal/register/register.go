@@ -138,7 +138,7 @@ func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) err
 	form.Add("response", token)
 
 	// is turnstile verification enabled
-	if r.turnstileEnabled == false {
+	if !r.turnstileEnabled {
 		r.logger.Info().Msg("Bypassing Turnstile verification")
 		return nil
 	}
@@ -486,7 +486,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	server.SendResponse(w, isJSON, http.StatusCreated, r, "register-success", formData)
 }
 
-func (r *registrar) showPage(w http.ResponseWriter, req *http.Request) {
+func (r *registrar) showRegister(w http.ResponseWriter, req *http.Request) {
 	err := r.templates.ExecuteTemplate(w, "register.html", RegistrationFormData{})
 	if err != nil {
 		r.logger.Error().Caller().Err(err).Msg("failed to render register page")
