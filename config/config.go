@@ -33,6 +33,7 @@ type ServerConfig struct {
 	Mode              string `mapstructure:"mode"`
 	ReadHeaderTimeout string `mapstructure:"read_header_timeout"`
 	TurnstileSecret   string `mapstructure:"turnstile_secret_key"`
+	TurnstileEnabled  bool   `mapstructure:"turnstile_enabled"`
 	Version           string `mapstructure:"version"`
 	XCFBypass         string `mapstructure:"x_cf_bypass"`
 }
@@ -48,9 +49,10 @@ func LoadConfig(path string) (*Config, error) {
 
 	// 1. Set Defaults
 	viper.SetDefault("server.port", 3000)
-	viper.SetDefault("server.mode", "development")
+	viper.SetDefault("server.mode", "production")
 	viper.SetDefault("server.read_header_timeout", "5s")
 	viper.SetDefault("server.version", "0.0.2-20260201")
+	viper.SetDefault("server.turnstile_enabled", true)
 
 	// 2. Load Config File
 	if err := viper.ReadInConfig(); err != nil {
@@ -73,6 +75,8 @@ func LoadConfig(path string) (*Config, error) {
 	viper.BindEnv("server.turnstile_secret_key", "TENKEI_SERVER_TURNSTILE_SECRET_KEY")
 	viper.BindEnv("database.connection_string", "TENKEI_DATABASE_CONNECTION_STRING")
 	viper.BindEnv("server.x_cf_bypass", "TENKEI_SERVER_X_CF_BYPASS")
+	viper.BindEnv("server.mode", "TENKEI_SERVER_MODE")
+	viper.BindEnv("server.turnstile_enabled", "TENKEI_SERVER_TURNSTILE_ENABLED")
 
 	// 4. Unmarshal into Struct
 	var cfg Config

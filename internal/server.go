@@ -72,7 +72,7 @@ func ServeWith(ctx context.Context, listener net.Listener, handler http.Handler,
 		readHeaderTimeout = 10 * time.Second
 	}
 
-	log.Info().Msg("Server version: " + cfg.Server.Version + " starting and listening on port " + cfg.Server.Port)
+	log.Info().Str("version", cfg.Server.Version).Str("port", cfg.Server.Port).Msg("Server starting")
 
 	srv := &http.Server{
 		Handler:      handler,

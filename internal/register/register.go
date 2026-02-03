@@ -137,8 +137,8 @@ func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) err
 	form.Add("secret", r.turnstileSecret)
 	form.Add("response", token)
 
-	// bypass verification for now:
-	if r.turnstileSecret == "bypass-turnstile-verification" {
+	// is turnstile verification enabled
+	if r.turnstileEnabled == false {
 		r.logger.Info().Msg("Bypassing Turnstile verification")
 		return nil
 	}
