@@ -123,11 +123,6 @@ func (r *registrar) RenderError(w http.ResponseWriter, blockName string, data in
 }
 
 func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) error {
-	if r.turnstileSecret == "" {
-		r.logger.Error().Msg("TURNSTILE_SECRET_KEY not configured")
-		return errors.New("TURNSTILE_SECRET_KEY not configured")
-	}
-
 	if token == "" {
 		r.logger.Warn().Msg("Turnstile token is empty")
 		return errors.New("turnstile token is empty")
@@ -137,10 +132,15 @@ func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) err
 	form.Add("secret", r.turnstileSecret)
 	form.Add("response", token)
 
-	// is turnstile verification enabled
+	// is turnstile verification disabled, the bypass checking
 	if !r.turnstileEnabled {
 		r.logger.Info().Msg("Bypassing Turnstile verification")
 		return nil
+	}
+	// if enabled but empty...then error
+	if r.turnstileSecret == "" {
+		r.logger.Error().Msg("TURNSTILE_SECRET_KEY not configured")
+		return errors.New("TURNSTILE_SECRET_KEY not configured")
 	}
 
 	// Optionally add the user's IP address here (prefer X-Forwarded-For, then X-Real-IP, then RemoteAddr)
