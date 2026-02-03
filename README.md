@@ -1,17 +1,18 @@
-# Tenkei Register
+# Tenkei Backend
 
 This repository handles back end services.
 
 ## Development Overview
 
 - The stack is based on Golang 1.25.x
-- Data is stored in Postgres database.
+- Data is stored in sql database.
 - Routes are handled using chi router.
 
 ## Quick Start
 
-- VS Code: Open the project and open in container.
-- The main app runs on port 8080
+- VSCode: Open the project and open in container.
+- Create a local config.yaml in the root with your preferred configurations such as ports etc.
+- The main app runs on port 3000.
 - Database can be access on db:5432 from the container.
 
 The Dev Container mounts the workspace at `/workspace` and runs `go mod download` on first create.
@@ -31,7 +32,7 @@ The Dev Container mounts the workspace at `/workspace` and runs `go mod download
   - `POSTGRES_PASSWORD`: `db_password`
   - `POSTGRES_DB`: `tenkei`
 - Config.yaml.config:
-  - `database.connection_+string` (on the app service): `postgres://db_user:db_password@db:5432/tenkei?sslmode=disable`
+  - `database.connection_string` (on the app service): `postgres://db_user:db_password@db:5432/tenkei?sslmode=disable`
 
 Go toolchain: [go.mod](go.mod) declares Go `1.25.5`. The devcontainer image tracks Go 1.x; if you need to pin to exactly 1.25, we can switch to a tagged image.
 
@@ -57,7 +58,7 @@ Run the application inside the Dev Container:
 go run ./...
 ```
 
-Note: Ensure your server listens (e.g., `http.ListenAndServe(":8080", router)`), then forward 8080 as already configured in the devcontainer.
+Note: Ensure your server listens (e.g., `http.ListenAndServe(":3000", router)`), then forward 3000 as already configured in the devcontainer.
 
 ## Database Access
 
