@@ -3,8 +3,10 @@ package register
 import (
 	"context"
 	"html/template"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/httprate"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/config"
@@ -33,6 +35,8 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 	}
 
 	r.Route("/v1/register", func(r chi.Router) {
+		// Rate limit: 5 requests per minute per IP
+		r.Use(httprate.LimitByIP(5, 1*time.Minute))
 		r.Post("/", reg.handleSubmission)
 		// r.Get("/", reg.showPage) disable showing register page
 		r.Get("/count", reg.getUserCount)
