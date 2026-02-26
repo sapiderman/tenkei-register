@@ -1,0 +1,10 @@
+
+server:
+  port: 3001
+  turnstile_secret_key: 1x00000000000000000000AA
+  x_cf_bypass: 123
+
+
+database:
+  connection_string: postgres://db_user:db_password@127.0.0.1:5432/tenkei?sslmode=disable
+

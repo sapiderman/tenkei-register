@@ -70,13 +70,13 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Explicitly bind well-known environment variables for robustness
 	// Cloud Run needs the PORT variable, so bind it explicitly
-	viper.BindEnv("server.port", "PORT")
+	_ = viper.BindEnv("server.port", "PORT")
 
-	viper.BindEnv("server.turnstile_secret_key", "TENKEI_SERVER_TURNSTILE_SECRET_KEY")
-	viper.BindEnv("database.connection_string", "TENKEI_DATABASE_CONNECTION_STRING")
-	viper.BindEnv("server.x_cf_bypass", "TENKEI_SERVER_X_CF_BYPASS")
-	viper.BindEnv("server.mode", "TENKEI_SERVER_MODE")
-	viper.BindEnv("server.turnstile_enabled", "TENKEI_SERVER_TURNSTILE_ENABLED")
+	_ = viper.BindEnv("server.turnstile_secret_key", "TENKEI_SERVER_TURNSTILE_SECRET_KEY")
+	_ = viper.BindEnv("database.connection_string", "TENKEI_DATABASE_CONNECTION_STRING")
+	_ = viper.BindEnv("server.x_cf_bypass", "TENKEI_SERVER_X_CF_BYPASS")
+	_ = viper.BindEnv("server.mode", "TENKEI_SERVER_MODE")
+	_ = viper.BindEnv("server.turnstile_enabled", "TENKEI_SERVER_TURNSTILE_ENABLED")
 
 	// 4. Unmarshal into Struct
 	var cfg Config

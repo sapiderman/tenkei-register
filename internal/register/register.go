@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"html"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -60,16 +61,16 @@ func sanitizeFormData(d RegistrationFormData) RegistrationFormData {
 }
 
 // parseDate safely parses a date string in YYYY-MM-DD format.
-// Returns zero time if parsing fails.
-func parseDate(dateStr string) time.Time {
+// Returns zero time for empty input and an error for invalid formats.
+func parseDate(dateStr string) (time.Time, error) {
 	if dateStr == "" {
-		return time.Time{}
+		return time.Time{}, nil
 	}
 	t, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
-		return time.Time{}
+		return time.Time{}, errors.New("invalid date format, use YYYY-MM-DD")
 	}
-	return t
+	return t, nil
 }
 
 // parseCheckbox returns true if the checkbox value indicates it was checked.
@@ -143,12 +144,11 @@ func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) err
 		return errors.New("TURNSTILE_SECRET_KEY not configured")
 	}
 
-	// Optionally add the user's IP address here (prefer X-Forwarded-For, then X-Real-IP, then RemoteAddr)
+	// Add trusted client IP for Turnstile verification.
+	// Prefer CF-Connecting-IP when behind Cloudflare; otherwise fallback to RemoteAddr.
 	var remoteIP string
-	if fwd := req.Header.Get("X-Forwarded-For"); fwd != "" {
-		remoteIP = strings.TrimSpace(strings.Split(fwd, ",")[0])
-	} else if rip := req.Header.Get("X-Real-IP"); rip != "" {
-		remoteIP = strings.TrimSpace(rip)
+	if cfIP := strings.TrimSpace(req.Header.Get("CF-Connecting-IP")); cfIP != "" {
+		remoteIP = cfIP
 	} else {
 		if host, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
 			remoteIP = host
@@ -282,8 +282,16 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 			PasswordConfirm      string `json:"password_confirm"`
 		}
 
+		req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
 		var payload apiRegistrationRequest
-		if err := json.NewDecoder(req.Body).Decode(&payload); err != nil {
+		decoder := json.NewDecoder(req.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&payload); err != nil {
+			r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
+			return
+		}
+		if err := decoder.Decode(&struct{}{}); err != io.EOF {
 			r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
 			return
@@ -439,6 +447,22 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	dateOfBirth, err := parseDate(formData.DateOfBirth)
+	if err != nil {
+		formData.Error = "Date of birth must be in YYYY-MM-DD format."
+		r.logger.Warn().Caller().Msg(formData.Error)
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		return
+	}
+
+	lastGradingDate, err := parseDate(formData.LastGradingDate)
+	if err != nil {
+		formData.Error = "Last grading date must be in YYYY-MM-DD format."
+		r.logger.Warn().Caller().Msg(formData.Error)
+		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		return
+	}
+
 	// --- Build User struct ---
 	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -453,10 +477,10 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		Email:                  formData.Email,
 		WhatsApp:               formData.WhatsApp,
 		PasswordHash:           string(hashedPwd),
-		DateOfBirth:            parseDate(formData.DateOfBirth),
+		DateOfBirth:            dateOfBirth,
 		Dojo:                   formData.Dojo,
 		Rank:                   formData.Rank,
-		LastGradingDate:        parseDate(formData.LastGradingDate),
+		LastGradingDate:        lastGradingDate,
 		Role:                   formData.Role,
 		ConsentDataStore:       formData.ConsentDataStore,
 		ConsentMarketingEmails: formData.ConsentMarketingEmails,
@@ -481,17 +505,9 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	r.logger.Info().Str("name", user.Name).Str("whatsapp", user.WhatsApp).Msg("user registered successfully")
+	r.logger.Info().Int64("user_id", user.ID).Msg("user registered successfully")
 
 	server.SendResponse(w, isJSON, http.StatusCreated, r, "register-success", formData)
-}
-
-func (r *registrar) showRegister(w http.ResponseWriter, req *http.Request) {
-	err := r.templates.ExecuteTemplate(w, "register.html", RegistrationFormData{})
-	if err != nil {
-		r.logger.Error().Caller().Err(err).Msg("failed to render register page")
-		http.Error(w, "Template Error", http.StatusInternalServerError)
-	}
 }
 
 // renderRegistrationBlock renders a specific template block for HTMX partial updates.

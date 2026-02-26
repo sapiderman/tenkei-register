@@ -33,7 +33,7 @@ func XCFBypass(key string) func(next http.Handler) http.Handler {
 					Str("method", r.Method).
 					Str("path", r.URL.Path).
 					Msg("x-cf-bypass header is empty")
-				server.SendSimpleResponse(w, http.StatusForbidden, "bypass header/key is empty")
+				server.SendSimpleResponse(w, http.StatusNotFound, "Not Found")
 				return
 			}
 			if bypass != key {
@@ -41,7 +41,7 @@ func XCFBypass(key string) func(next http.Handler) http.Handler {
 					Str("method", r.Method).
 					Str("path", r.URL.Path).
 					Msg("x-cf-bypass header is invalid")
-				server.SendSimpleResponse(w, http.StatusForbidden, "bypass header is invalid")
+				server.SendSimpleResponse(w, http.StatusNotFound, "Not Found")
 				return
 			}
 			next.ServeHTTP(w, r)
