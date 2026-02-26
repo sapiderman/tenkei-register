@@ -34,7 +34,7 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 
 	r.Route("/v1/register", func(r chi.Router) {
 		r.Post("/", reg.handleSubmission)
-		r.Get("/", reg.showRegister)
+		// r.Get("/", reg.showPage) disable showing register page
 		r.Get("/count", reg.getUserCount)
 	})
 

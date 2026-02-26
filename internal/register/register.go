@@ -327,7 +327,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	turnstileToken := formData.CfTurnstileResponse
 	err := r.verifyTurnstileResponse(req, turnstileToken)
 	if err != nil {
-		formData.Error = "Security verification failed. Please try again."
+		formData.Error = "Security verification failed. Please try again in a few minutes."
 		r.logger.Error().Caller().Err(err).Msg("Turnstile verification failed")
 		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
 		return
