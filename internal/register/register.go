@@ -126,7 +126,7 @@ func (r *registrar) RenderError(w http.ResponseWriter, blockName string, data in
 func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) error {
 	// Check if turnstile verification is enabled first; bypass if disabled
 	if !r.turnstileEnabled {
-		r.logger.Info().Msg("Bypassing Turnstile verification")
+		r.logger.Debug().Caller().Msg("Bypassing Turnstile verification")
 		return nil
 	}
 

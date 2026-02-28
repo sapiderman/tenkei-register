@@ -38,7 +38,6 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 		// Rate limit: 5 requests per minute per IP
 		r.Use(httprate.LimitByIP(5, 1*time.Minute))
 		r.Post("/", reg.handleSubmission)
-		// r.Get("/", reg.showPage) disable showing register page
 		r.Get("/count", reg.getUserCount)
 	})
 

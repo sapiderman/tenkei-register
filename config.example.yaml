@@ -1,6 +1,7 @@
-
 server:
   port: 3001
+  mode: development
+  turnstile_enabled: true
   turnstile_secret_key: 1x00000000000000000000AA
   x_cf_bypass: 123
 

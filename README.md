@@ -5,7 +5,7 @@ This repository handles back end services.
 ## Development Overview
 
 - The stack is based on Golang 1.25.x
-- Data is stored in sql database.
+- Data is stored in a Postgres database.
 - Routes are handled using chi router.
 
 ## Quick Start
