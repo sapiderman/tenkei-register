@@ -84,10 +84,11 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// check turnstile secret is setup properly
-	if cfg.Server.TurnstileSecret == "" {
+	// check turnstile secret is setup properly if turnstile is enabled
+	if cfg.Server.TurnstileEnabled && cfg.Server.TurnstileSecret == "" {
 		return nil, errors.New("server.turnstile_secret_key not configured ******************************************")
-	} else {
+	}
+	if cfg.Server.TurnstileEnabled {
 		log.Info().Msg("Yaay Turnstile secret key is set")
 	}
 

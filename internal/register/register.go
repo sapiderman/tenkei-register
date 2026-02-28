@@ -124,25 +124,26 @@ func (r *registrar) RenderError(w http.ResponseWriter, blockName string, data in
 }
 
 func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) error {
+	// Check if turnstile verification is enabled first; bypass if disabled
+	if !r.turnstileEnabled {
+		r.logger.Info().Msg("Bypassing Turnstile verification")
+		return nil
+	}
+
+	// If enabled, validate required fields
 	if token == "" {
 		r.logger.Warn().Msg("Turnstile token is empty")
 		return errors.New("turnstile token is empty")
 	}
 
-	form := url.Values{}
-	form.Add("secret", r.turnstileSecret)
-	form.Add("response", token)
-
-	// is turnstile verification disabled, the bypass checking
-	if !r.turnstileEnabled {
-		r.logger.Info().Msg("Bypassing Turnstile verification")
-		return nil
-	}
-	// if enabled but empty...then error
 	if r.turnstileSecret == "" {
 		r.logger.Error().Msg("TURNSTILE_SECRET_KEY not configured")
 		return errors.New("TURNSTILE_SECRET_KEY not configured")
 	}
+
+	form := url.Values{}
+	form.Add("secret", r.turnstileSecret)
+	form.Add("response", token)
 
 	// Add trusted client IP for Turnstile verification.
 	// Prefer CF-Connecting-IP when behind Cloudflare; otherwise fallback to RemoteAddr.

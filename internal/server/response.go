@@ -7,7 +7,7 @@ import (
 )
 
 type ErrorResponder interface {
-	RenderError(w http.ResponseWriter, blockName string, data interface{})
+	RenderError(w http.ResponseWriter, blockName string, data any)
 }
 
 // SendError sends an error response in JSON or HTML format based on client preference
