@@ -13,9 +13,6 @@ var (
 	isInitialized = false
 )
 
-func init() {
-
-}
 func IsInitialized() bool {
 	return isInitialized
 }

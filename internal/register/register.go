@@ -279,8 +279,8 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		// Decode JSON body
 		type apiRegistrationRequest struct {
 			RegistrationFormData `json:",inline"`
-			Password             string `json:"password"`
-			PasswordConfirm      string `json:"password_confirm"`
+			Password             string `json:"password" validate:"required"`         // #nosec G117
+			PasswordConfirm      string `json:"password_confirm" validate:"required"` // #nosec G117
 		}
 
 		req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
