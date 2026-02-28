@@ -32,7 +32,7 @@ type ServerConfig struct {
 	TurnstileSecret   string `mapstructure:"turnstile_secret_key"`
 	TurnstileEnabled  bool   `mapstructure:"turnstile_enabled"`
 	Version           string `mapstructure:"version"`
-	XCFBypass         string `mapstructure:"x_cf_bypass"`
+	XCFBypass         string `mapstructure:"x_cf_bypass"` // need to match with frontend config
 }
 
 type DatabaseConfig struct {
@@ -83,14 +83,18 @@ func LoadConfig(path string) (*Config, error) {
 
 	// check turnstile secret is setup properly if turnstile is enabled
 	if cfg.Server.TurnstileEnabled && cfg.Server.TurnstileSecret == "" {
-		return nil, errors.New("server.turnstile_secret_key not configured ******************************************")
+		return nil, errors.New("server.turnstile_secret_key not configured, check environment ******************************************")
 	}
 	if cfg.Server.TurnstileEnabled {
 		log.Info().Msg("Yaay Turnstile secret key is set")
 	}
 
 	if strings.TrimSpace(cfg.Database.ConnectionString) == "" {
-		return nil, errors.New("database.connection_string not configured *******************************")
+		return nil, errors.New("database.connection_string not configured, check environment *******************************")
+	}
+
+	if strings.TrimSpace(cfg.Server.XCFBypass) == "" {
+		return nil, errors.New("server.x_cf_bypass not configured, check environment ***************************************")
 	}
 
 	SetInitialized(true)

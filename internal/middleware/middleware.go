@@ -28,8 +28,8 @@ func XCFBypass(key string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			bypass := r.Header.Get("x-cf-bypass")
-			if bypass == "" || key == "" {
-				log.Error().
+			if bypass == "" {
+				log.Error().Caller().
 					Str("method", r.Method).
 					Str("path", r.URL.Path).
 					Msg("x-cf-bypass header is empty")
@@ -37,7 +37,7 @@ func XCFBypass(key string) func(next http.Handler) http.Handler {
 				return
 			}
 			if bypass != key {
-				log.Error().
+				log.Error().Caller().
 					Str("method", r.Method).
 					Str("path", r.URL.Path).
 					Msg("x-cf-bypass header is invalid")
