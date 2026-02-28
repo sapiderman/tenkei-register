@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog/log"
+	"github.com/sapiderman/tenkei-register/internal/server"
 )
 
 func AccessLog(next http.Handler) http.Handler {
@@ -28,20 +29,19 @@ func XCFBypass(key string) func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			bypass := r.Header.Get("x-cf-bypass")
 			if bypass == "" {
-				log.Error().
+				log.Error().Caller().
 					Str("method", r.Method).
 					Str("path", r.URL.Path).
 					Msg("x-cf-bypass header is empty")
-				w.WriteHeader(http.StatusForbidden)
+				server.SendSimpleResponse(w, http.StatusNotFound, "Not Found")
 				return
 			}
 			if bypass != key {
-				log.Error().
+				log.Error().Caller().
 					Str("method", r.Method).
 					Str("path", r.URL.Path).
-					Str("x-cf-bypass", bypass).
 					Msg("x-cf-bypass header is invalid")
-				w.WriteHeader(http.StatusForbidden)
+				server.SendSimpleResponse(w, http.StatusNotFound, "Not Found")
 				return
 			}
 			next.ServeHTTP(w, r)

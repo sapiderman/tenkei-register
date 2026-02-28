@@ -58,7 +58,9 @@ func StartServer(ctx context.Context) {
 	}
 	log.Info().Msgf("Server is listening on %v", config.Server.Port)
 
-	ServeWith(ctx, l, server.handler, *config)
+	if err := ServeWith(ctx, l, server.handler, *config); err != nil {
+		log.Error().Err(err).Msg("Server stopped with error")
+	}
 }
 
 func ServeWith(ctx context.Context, listener net.Listener, handler http.Handler, cfg config.Config) error {
@@ -72,7 +74,7 @@ func ServeWith(ctx context.Context, listener net.Listener, handler http.Handler,
 		readHeaderTimeout = 10 * time.Second
 	}
 
-	log.Info().Msg("Server version: " + cfg.Server.Version + " starting and listening on port " + cfg.Server.Port)
+	log.Info().Str("version", cfg.Server.Version).Str("port", cfg.Server.Port).Msg("Server starting")
 
 	srv := &http.Server{
 		Handler:      handler,

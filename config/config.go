@@ -13,9 +13,6 @@ var (
 	isInitialized = false
 )
 
-func init() {
-
-}
 func IsInitialized() bool {
 	return isInitialized
 }
@@ -33,8 +30,9 @@ type ServerConfig struct {
 	Mode              string `mapstructure:"mode"`
 	ReadHeaderTimeout string `mapstructure:"read_header_timeout"`
 	TurnstileSecret   string `mapstructure:"turnstile_secret_key"`
+	TurnstileEnabled  bool   `mapstructure:"turnstile_enabled"`
 	Version           string `mapstructure:"version"`
-	XCFBypass         string `mapstructure:"x_cf_bypass"`
+	XCFBypass         string `mapstructure:"x_cf_bypass"` // need to match with frontend config
 }
 
 type DatabaseConfig struct {
@@ -48,9 +46,10 @@ func LoadConfig(path string) (*Config, error) {
 
 	// 1. Set Defaults
 	viper.SetDefault("server.port", 3000)
-	viper.SetDefault("server.mode", "development")
+	viper.SetDefault("server.mode", "production")
 	viper.SetDefault("server.read_header_timeout", "5s")
 	viper.SetDefault("server.version", "0.0.2-20260201")
+	viper.SetDefault("server.turnstile_enabled", true)
 
 	// 2. Load Config File
 	if err := viper.ReadInConfig(); err != nil {
@@ -68,11 +67,13 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Explicitly bind well-known environment variables for robustness
 	// Cloud Run needs the PORT variable, so bind it explicitly
-	viper.BindEnv("server.port", "PORT")
+	_ = viper.BindEnv("server.port", "PORT")
 
-	viper.BindEnv("server.turnstile_secret_key", "TENKEI_SERVER_TURNSTILE_SECRET_KEY")
-	viper.BindEnv("database.connection_string", "TENKEI_DATABASE_CONNECTION_STRING")
-	viper.BindEnv("server.x_cf_bypass", "TENKEI_SERVER_X_CF_BYPASS")
+	_ = viper.BindEnv("server.turnstile_secret_key", "TENKEI_SERVER_TURNSTILE_SECRET_KEY")
+	_ = viper.BindEnv("database.connection_string", "TENKEI_DATABASE_CONNECTION_STRING")
+	_ = viper.BindEnv("server.x_cf_bypass", "TENKEI_SERVER_X_CF_BYPASS")
+	_ = viper.BindEnv("server.mode", "TENKEI_SERVER_MODE")
+	_ = viper.BindEnv("server.turnstile_enabled", "TENKEI_SERVER_TURNSTILE_ENABLED")
 
 	// 4. Unmarshal into Struct
 	var cfg Config
@@ -80,15 +81,20 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// check turnstile secret is setup properly
-	if cfg.Server.TurnstileSecret == "" {
-		return nil, errors.New("server.turnstile_secret_key not configured ******************************************")
-	} else {
+	// check turnstile secret is setup properly if turnstile is enabled
+	if cfg.Server.TurnstileEnabled && cfg.Server.TurnstileSecret == "" {
+		return nil, errors.New("server.turnstile_secret_key not configured, check environment ******************************************")
+	}
+	if cfg.Server.TurnstileEnabled {
 		log.Info().Msg("Yaay Turnstile secret key is set")
 	}
 
 	if strings.TrimSpace(cfg.Database.ConnectionString) == "" {
-		return nil, errors.New("database.connection_string not configured *******************************")
+		return nil, errors.New("database.connection_string not configured, check environment *******************************")
+	}
+
+	if strings.TrimSpace(cfg.Server.XCFBypass) == "" {
+		return nil, errors.New("server.x_cf_bypass not configured, check environment ***************************************")
 	}
 
 	SetInitialized(true)

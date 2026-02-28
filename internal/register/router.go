@@ -3,8 +3,10 @@ package register
 import (
 	"context"
 	"html/template"
+	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/httprate"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/config"
@@ -12,27 +14,30 @@ import (
 )
 
 type registrar struct {
-	context         context.Context
-	logger          zerolog.Logger
-	validate        *validator.Validate
-	db              *bun.DB
-	templates       *template.Template
-	turnstileSecret string
+	context          context.Context
+	logger           zerolog.Logger
+	validate         *validator.Validate
+	db               *bun.DB
+	templates        *template.Template
+	turnstileSecret  string
+	turnstileEnabled bool
 }
 
 func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validate *validator.Validate, db *bun.DB, cfg *config.Config) {
 	reg := &registrar{
-		context:         ctx,
-		logger:          logger,
-		validate:        validate,
-		db:              db,
-		templates:       template.Must(template.ParseGlob("internal/templates/*.html")),
-		turnstileSecret: cfg.Server.TurnstileSecret,
+		context:          ctx,
+		logger:           logger,
+		validate:         validate,
+		db:               db,
+		templates:        template.Must(template.ParseGlob("internal/templates/*.html")),
+		turnstileSecret:  cfg.Server.TurnstileSecret,
+		turnstileEnabled: cfg.Server.TurnstileEnabled,
 	}
 
 	r.Route("/v1/register", func(r chi.Router) {
+		// Rate limit: 5 requests per minute per IP
+		r.Use(httprate.LimitByIP(5, 1*time.Minute))
 		r.Post("/", reg.handleSubmission)
-		r.Get("/", reg.showPage)
 		r.Get("/count", reg.getUserCount)
 	})
 

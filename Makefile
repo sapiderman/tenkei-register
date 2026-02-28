@@ -1,7 +1,7 @@
 # backend makefile
 
 CURRENT_PATH ?= $(shell pwd)
-IMAGE_NAME ?= register-go-img
+IMAGE_NAME ?= tenkei-be-img
 DATABASE_URL ?= postgres://db_user:db_password@localhost:5437/tenkei?sslmode=disable
 
 .PHONY: all test clean build docker
