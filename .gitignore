@@ -1,5 +1,20 @@
-# Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,go,linux,windows,macos
-# Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,go,linux,windows,macos
+# Created by https://www.toptal.com/developers/gitignore/api/go,linux,macos,windows,visualstudiocode,git
+# Edit at https://www.toptal.com/developers/gitignore?templates=go,linux,macos,windows,visualstudiocode,git
+
+### Git ###
+# Created by git for backups. To disable backups in Git:
+# $ git config --global mergetool.keepBackup false
+*.orig
+
+# Created by git when using merge tools for conflicts
+*.BACKUP.*
+*.BASE.*
+*.LOCAL.*
+*.REMOTE.*
+*_BACKUP_*.txt
+*_BASE_*.txt
+*_LOCAL_*.txt
+*_REMOTE_*.txt
 
 ### Go ###
 # If you prefer the allow list template instead of the deny list, see community template:
@@ -116,10 +131,8 @@ $RECYCLE.BIN/
 
 # Windows shortcuts
 *.lnk
+# End of https://www.toptal.com/developers/gitignore/api/go,linux,macos,windows,visualstudiocode,git
 
-# End of https://www.toptal.com/developers/gitignore/api/visualstudiocode,go,linux,windows,macos
+# graphify
+graphify-out
 
-config.yaml
-config.
-tenkei-be-img
-logs.json
