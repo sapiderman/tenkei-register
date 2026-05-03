@@ -1,0 +1,37 @@
+# Go build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+*.coverprofile
+*.cover
+
+# Go module files
+/go/pkg/
+/vendor/
+
+# Common Go temporary files
+*.tmp
+*.temp
+
+# Coverage
+coverage.out
+
+# IDE / editor files
+*.swp
+*~
+.DS_Store
+.vscode/
+.idea/
+*.iml
+
+# Local build directories
+/build/
+/dist/
+/bin/
+
+# Logs
+*.log
