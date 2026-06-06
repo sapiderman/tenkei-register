@@ -1,267 +1,113 @@
 # Tenkei Register Backend
 
-## Overview
-
-Backend service for **Tenkei Aikidojo** registration and member management. Written in Go, prioritizing simplicity, security, and maintainability.
-
-**Repo**: `sapiderman/tenkei-register`
-**Language**: Go 1.26
-**License**: Private / Proprietary
-
-> NOTE: This repository includes a generated graph output directory at `graphify-out/`. AI models should inspect `graphify-out/` first for structured project context before scanning raw source files.
+**Repo**: `sapiderman/tenkei-register` | **Language**: Go 1.26 | **License**: Private
 
 ## AI Rules
 
-**Guidelines for Gemini/Agents:**
-
-1.  **Idiomatic**: Write "Boring Go" (1.26 style). Prefer clarity and security over brevity.
-2.  **Libraries**: Use the established stack (`chi`, `zerolog`, `bun`, `viper`). Do not introduce new external dependencies unless absolutely necessary.
-3.  **Security**: Treat all input as hostile. Validate early. Never log secrets or PII (like WhatsApp numbers).
-4.  **No Panics**: Never use `panic()` in application code. Return errors wrapped with context.
-5.  **Critique**: Before writing code, list 3 risks for non-trivial changes.
-6.  **Clean Code**: Ensure no unused variables, functions, or imports are left behind. Fix all `staticcheck` and `go fmt` warnings before completing a task.
+1. Write "Boring Go". Clarity and security over brevity.
+2. Use the existing stack (`chi`, `zerolog`, `bun`, `viper`). No new deps without justification.
+3. Never log passwords, tokens, WhatsApp numbers, or emergency contacts.
+4. Never `panic()` in app code. Return wrapped errors.
+5. No global state. Use dependency injection.
+6. Write unit tests for all new handlers, middleware, and database functions. Aim for 100% coverage on new code.
+7. Read and load the [Kaparthy Guidelines](https://github.com/sapiderman/andrej-karpathy-skills/blob/main/skills/karpathy-guidelines/SKILL.md) before suggesting changes or writing any code. This is your compass for code quality and style.
 
 ## Tech Stack
 
-### Core
+- **Router**: `chi/v5` + `chi/httprate` (rate limiting)
+- **DB**: PostgreSQL via `uptrace/bun` + `pgdriver`
+- **Auth**: `golang.org/x/crypto/bcrypt` | session cookies (server-side, DB-backed)
+- **Validation**: `go-playground/validator/v10`
+- **Logging**: `zerolog` | **Config**: `spf13/viper`
+- **Graceful shutdown**: `golang.org/x/sys/unix` (SIGTERM, SIGINT, SIGQUIT)
 
--   **Go**: 1.26 (Strict Mode).
--   **Router**: `github.com/go-chi/chi/v5`.
--   **Database**: PostgreSQL (via `github.com/uptrace/bun` and `pgdriver`).
--   **Validation**: `github.com/go-playground/validator/v10`.
--   **Security**: `golang.org/x/crypto/bcrypt` (Password Hashing).
--   **Logging**: `github.com/rs/zerolog` (Structured).
--   **Config**: `github.com/spf13/viper` (Environment Variables & YAML).
+## Project Structure
 
-### Tools
+```
+├── main.go
+├── config/                  # Viper config (env vars + YAML)
+├── internal/
+│   ├── auth/                # Login, session, profile
+│   ├── register/           # Registration (HTML + JSON dual-format)
+│   ├── templates/          # HTML template (register.html)
+│   ├── types/              # Shared bun models: User, Audit
+│   ├── database/           # DB connection + query logging hook
+│   ├── middleware/          # XCFBypass, AccessLog
+│   └── server/             # StartServer, ServeWith, response helpers, ErrorResponder
+├── migrations/
+├── .devcontainer/           # Go + PostgreSQL dev environment
+├── Dockerfile               # Multi-stage build (scratch)
+└── Makefile
+```
 
--   **Linting**: `golangci-lint` (Latest).
--   **Build**: `Makefile`.
--   **Docker**: Multi-stage builds (Distroless final image).
--   **Migrate**: Native SQL execution or external tools.
+## Routes
+
+| Method | Path | Middleware | Purpose |
+| ------ | ---- | ---------- | ------- |
+| POST | `/v1/register/` | XCFBypass + rate-limit (5/min/IP) + Turnstile | New member registration (HTML form or JSON) |
+| GET | `/v1/register/count` | XCFBypass + rate-limit (5/min/IP) | Total registered user count |
+| POST | `/v1/auth/login` | XCFBypass + rate-limit (10/min/IP) | Session login (JSON) |
+| GET | `/v1/auth/profile` | XCFBypass + session cookie | View profile |
+| PUT | `/v1/auth/profile` | XCFBypass + session cookie | Update profile |
+| POST | `/v1/auth/logout` | XCFBypass + session cookie | Invalidate session |
+| GET | `/health` | None (before XCFBypass) | Liveness probe |
+
+## Middleware Stack (in order)
+
+Applied in `internal/http.go`. Order matters.
+
+1. `RequestID` → 2. `Recoverer` → 3. `AccessLog` → 4. `Heartbeat("/health")` → 5. `XCFBypass` → 6. `Timeout(60s)`
+
+- `/health` bypasses `XCFBypass` (check #4 before #5).
+- Auth endpoints additionally use `sessionRequired` middleware (inside `auth.NewRouter`).
+
+## Key Architecture Decisions
+
+- **Dual-format endpoints**: Register routes serve both HTML (via `html/template`) and JSON, selected by `Content-Type` header. The `server.ErrorResponder` interface abstracts this pattern.
+- **Anti-enumeration**: Login returns identical `401 "invalid credentials"` for wrong password and nonexistent user.
+- **Session cookies**: `HttpOnly`, `Secure` in production, `SameSite=Lax`, scoped to `/v1/auth`.
+- **PII masking**: Login failures log `mask(identifier)` only — never raw email/WhatsApp.
+- **Connection pool**: 25 max open, 10 idle, 5-minute lifetime.
+- **Server timeouts**: Read/Write 10s, Idle 120s, ReadHeaderTimeout from config (default 5s).
 
 ## Configuration
 
-Viper merges configuration from multiple sources in this priority order (highest wins):
+Viper merges: env vars (`TENKEI_` prefix) > `config.yaml` > compiled defaults. `config.yaml` is gitignored.
 
-1. **Environment variables** (prefixed `TENKEI_`, e.g., `TENKEI_DATABASE_CONNECTION_STRING`).
-2. **`config.yaml`** in the project root (local development only).
-3. **Compiled defaults** in `config/config.go`.
+| Variable | Default | Purpose |
+| --------- | --------- | --------- |
+| `PORT` | `3000` | HTTP listen port |
+| `TENKEI_DATABASE_CONNECTION_STRING` | — | PostgreSQL DSN (required) |
+| `TENKEI_SERVER_X_CF_BYPASS` | — | Shared header secret |
+| `TENKEI_SERVER_MODE` | `production` | `production` → Secure cookies, strict XCFBypass |
+| `TENKEI_SERVER_TURNSTILE_SECRET_KEY` | — | Cloudflare Turnstile secret |
+| `TENKEI_SERVER_TURNSTILE_ENABLED` | `true` | Toggle Turnstile verification |
+| `TENKEI_SERVER_READ_HEADER_TIMEOUT` | `5s` | Prevent Slowloris attacks |
 
-> **Security**: `config.yaml` is in `.gitignore` and must never be committed. It typically contains local secrets. Use `config.example.yaml` as a template.
+## Release Gates
 
-### Environment Variables
-
-| Variable | Required | Default | Purpose |
-|---|---|---|---|
-| `PORT` | No | `3000` | HTTP listen port (Cloud Run compatible). |
-| `TENKEI_DATABASE_CONNECTION_STRING` | Yes | none | PostgreSQL DSN used by Bun/pgdriver. |
-| `TENKEI_SERVER_TURNSTILE_SECRET_KEY` | Yes (when Turnstile enabled) | none | Cloudflare Turnstile secret key. |
-| `TENKEI_SERVER_TURNSTILE_ENABLED` | No | `true` | Enable/disable Turnstile server-side verification. |
-| `TENKEI_SERVER_X_CF_BYPASS` | Yes (prod) | none | Shared header secret checked by `XCFBypass` middleware. |
-| `TENKEI_SERVER_MODE` | No | `production` | Runtime mode indicator for environment-specific behavior. |
-
-## Structure
-
-```text
-tenkei-register/
-├── main.go              # Main entry point
-├── config/              # Configuration management
-├── internal/            # Private application code
-│   ├── database/        # Database connection and hooks
-│   ├── middleware/      # HTTP middlewares (e.g., XCFBypass, AccessLog)
-│   ├── register/        # Registration domain (handlers, models, db)
-│   ├── server/          # Server utilities and response helpers
-│   └── templates/       # HTML templates
-├── migrations/          # SQL migration files
-├── go.mod               # Dependencies
-└── Makefile             # Build commands
-```
-
-## Standards
-
-### Coding
-
-* **Errors**: Wrap errors with `fmt.Errorf("...: %w", err)`. Use `errors.Is` / `errors.As`.
-* **Iterators**: Use standard `for range` loops over custom iterator functions where applicable (Go 1.23+ pattern).
-* **Concurrency**: Use `errgroup` for synchronization. Context propagation is mandatory.
-* **Interfaces**: Define interfaces where *used* (Consumer), not where defined.
-
-### Security
-
-* **SQL**: Use `bun` ORM for parameterized queries to prevent SQL injection.
-* **Auth**: Cloudflare Turnstile for bot protection.
-* **Access Control**: All endpoints are protected by the `XCFBypass` middleware, requiring `x-cf-bypass`.
-* **XCFBypass Policy**:
-	* **Production**: `x-cf-bypass` is required and invalid/missing values should be masked as `404`.
-	* **Non-Production**: Allow explicit documented bypass strategy per environment (never by ad-hoc code edits).
-* **Request Limits**: Cap JSON request bodies with `http.MaxBytesReader` (1 MiB default on registration endpoint).
-* **Turnstile IP**: Prefer trusted `CF-Connecting-IP`; fallback to `RemoteAddr`.
-* **Logging**: Never log passwords, token values, or direct contact identifiers (WhatsApp/emergency numbers).
-* **Sanitization**: Escape HTML inputs when rendering templates, validate JSON payloads strictly.
-
-### Logging Privacy Rules
-
-Never log these fields, even in debug mode:
-
-* `password`
-* `password_confirm`
-* `cf_turnstile_response`
-* `whatsapp`
-* `emergency_contact_number`
-
-### Middleware Stack Order
-
-Chi middleware is applied in order. The current stack (defined in `internal/http.go`):
-
-1. `middleware.RequestID` — Assigns a unique request ID.
-2. `middleware.RealIP` — Extracts real client IP from proxy headers.
-3. `middleware.Recoverer` — Catches panics and returns 500.
-4. `mymiddleware.AccessLog` — Structured request/response logging.
-5. `middleware.Heartbeat("/health")` — Returns 200 on `/health` (bypasses later middleware).
-6. `mymiddleware.XCFBypass` — Rejects requests without valid `x-cf-bypass` header (returns masked 404).
-7. `middleware.Timeout(60s)` — Cancels request context after 60 seconds.
-
-> **Important**: `Heartbeat` must come before `XCFBypass` so `/health` is accessible without the bypass header.
-
-### Anti-Patterns
-
-* **Global State**: No global variables (e.g., `var DB *sql.DB`). Use Dependency Injection.
-* **"Magic"**: Avoid reflection. Be explicit.
-
-## Database Schema
-
-Migrations are in `migrations/`. Current schema (`000001_create_tables.up.sql`):
-
-### `users` Table
-
-| Column | Type | Constraints |
-|---|---|---|
-| `id` | int4 | PK, auto-increment |
-| `created_at` | timestamptz | DEFAULT CURRENT_TIMESTAMP |
-| `updated_at` | timestamptz | DEFAULT CURRENT_TIMESTAMP |
-| `email` | varchar | UNIQUE INDEX |
-| `name` | varchar | — |
-| `whatsapp_number` | varchar | NOT NULL, UNIQUE INDEX |
-| `password_hash` | varchar | NOT NULL |
-| `join_date` | timestamptz | NOT NULL, DEFAULT CURRENT_TIMESTAMP, INDEX |
-| `dojo` | varchar | — |
-| `date_of_birth` | date | — |
-| `rank` | varchar | — |
-| `last_grading_date` | date | — |
-| `role` | varchar | DEFAULT 'user' |
-| `consent_datastore` | boolean | DEFAULT false |
-| `consent_marketing` | boolean | DEFAULT false |
-| `medical_conditions` | text | — |
-| `emergency_contact_name` | varchar | — |
-| `emergency_contact_number` | varchar | — |
-
-### `audit` Table
-
-| Column | Type | Constraints |
-|---|---|---|
-| `id` | int4 | PK, auto-increment |
-| `created_at` | timestamptz | DEFAULT CURRENT_TIMESTAMP |
-| `updated_at` | timestamptz | DEFAULT CURRENT_TIMESTAMP |
-| `user_id` | int4 | INDEX |
-| `action` | varchar | — |
-
-## Local Development Quickstart
+All must pass before merge. Attach outputs in PR.
 
 ```bash
-# 1. Clone
-git clone git@github.com:sapiderman/tenkei-register.git
-cd tenkei-register
-
-# 2. Configure
-cp config.example.yaml config.yaml
-# Edit config.yaml with your local PostgreSQL DSN and test Turnstile key
-
-# 3. Database
-# Start PostgreSQL (e.g., via Docker) and run migrations:
-psql $YOUR_DSN -f migrations/000001_create_tables.up.sql
-
-# 4. Run
-go run main.go
-# Server listens on the port configured in config.yaml (default: 3000)
+make test          # Race detector + coverage
+make lint          # go fmt + staticcheck
+golangci-lint run  # If installed
+govulncheck ./...  # Vulnerability scan
+gosec ./...        # Security scan
+make build         # Produces ./tenkei-be-img
 ```
 
-## Workflow & Release Gates
+Known baseline: `gosec` `G117` on `password` fields in JSON structs. Acceptable only when the struct is never logged.
 
-All of the following must pass before merge/release. Attach command outputs in the PR:
+**Commit style**: Conventional Commits (`feat:`, `fix:`, `chore:`, `sec:`).
 
-| Step | Command | Notes |
-|---|---|---|
-| Test | `make test` | Runs tests with race detector and coverage. Must pass. |
-| Lint | `make lint` | Runs `go fmt` and `staticcheck`. Must pass. |
-| Advanced Lint | `golangci-lint run` | Must pass (if installed). |
-| Vulnerabilities | `govulncheck -show verbose ./...` | Must pass. |
-| Security | `gosec ./...` | Must pass. |
-| Build | `make build` | Produces `./tenkei-be-img`. |
-| Run | `make run` or `./tenkei-be-img` | — |
+## Interface Seams (for extension)
 
-* Findings from `staticcheck` and `gosec` are release blockers unless explicitly accepted with rationale.
-* If suppressing a finding (e.g., false positive), document the reason inline and in PR notes.
-* Any exception requires explicit maintainer approval with a written risk acceptance note.
-
-### Known Baseline Findings
-
-* `gosec` may report `G117` on JSON payload field names like `password`.
-* This is acceptable only when the payload struct is never logged and values are handled transiently.
-* If suppressed, require inline rationale and reviewer acknowledgement in PR.
-
-**Commit Style**: Conventional Commits (`feat:`, `fix:`, `chore:`, `sec:`).
-
-## Domain
-
-### Context
-
-* **Dojo**: Tenkei Aikidojo (Jakarta).
-* **Role**: Registration System.
-* **Users**: Admin (Sensei/Staff) vs. Member (Student).
-* **Data**: PII (Names, Phones, Emails) must always be protected.
-
-## API & Data
-
-### Protocol
-
-* **Format**: JSON (`Content-Type: application/json`) and HTML Form submissions.
-* **Response**: Flat JSON structure (e.g., `{"status": "ok"}` or `{"error": "message"}`) or HTML template rendering.
-
-### Response Contract
-
-JSON API response conventions:
-
-* **201 Created**: `{"status":"ok"}`
-* **400 Bad Request**: `{"error":"validation or security verification failed"}`
-* **404 Not Found**: `{"message":"Not Found"}` (used for access masking by `XCFBypass`)
-* **409 Conflict**: `{"error":"An account with this email or WhatsApp number already exists."}`
-* **500 Internal Server Error**: `{"error":"internal server error"}`
-
-### Validation
-
-* **Library**: `go-playground/validator` (v10) and explicit struct checks.
-* **Logic**: Validate at the *Handler* level before database insertion.
-
-## Deploy
-
-* **Target**: Linux Container (Docker).
-* **Platform**: `tenkei-be-img` (Go binary).
-* **Health**: Expose `/health` endpoint via `chi` middleware.
-
-## Emergency
-
-### Contacts
-
-* **Lead Dev**: sapiderman
-* **Infra**: `tenkei-backend` Status Page.
-
-### Recovery
-
-* **Panic**: Application auto-restarts (Docker). Check logs for stack trace.
-* **DB Down**: Service returns 503 Service Unavailable.
+- **`Verifier`** — Today `BcryptVerifier`; decorator pattern for 2FA (`requires2FA` seam ready)
+- **`SessionStore`** — Today `DBSessionStore`; swap for Redis when scaling
+- **`PasswordResetter`** — Defined, not implemented. Seam for forgot-password flow.
+- **`ErrorResponder`** — Abstracts HTML vs JSON rendering; implement for new content types.
 
 ---
 
-**Last Updated**: Feb 2026
-**Maintainer**: Tenkei Dev Team
+**Last Updated**: Jun 2026 | **Maintainer**: Tenkei Dev Team

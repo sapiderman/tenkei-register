@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/config"
+	"github.com/sapiderman/tenkei-register/internal/auth"
 	"github.com/sapiderman/tenkei-register/internal/database"
 	mymiddleware "github.com/sapiderman/tenkei-register/internal/middleware"
 	"github.com/sapiderman/tenkei-register/internal/register"
@@ -31,6 +32,7 @@ func NewHTTPHandler(ctx context.Context, db *database.Database, cfg *config.Conf
 	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
 	register.NewRouter(ctx, r, log, validator, db.DB, cfg)
+	auth.NewRouter(ctx, r, log, validator, db.DB, cfg)
 
 	return r, nil
 }
