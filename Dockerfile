@@ -14,7 +14,7 @@ COPY . .
 
 # Build the Go app
 # CGO_ENABLED=0 is required for a static binary that can run in scratch/alpine
-RUN CGO_ENABLED=0 GOOS=linux go build -o main .
+RUN CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o main .
 
 # Run stage
 FROM alpine:latest
