@@ -82,14 +82,14 @@ func (a *authenticator) dbUpdateUserProfile(ctx context.Context, userID int64, r
 		user.Rank = req.Rank
 	}
 	if req.DateOfBirth != "" {
-		dob, err := parseDate(req.DateOfBirth)
+		dob, err := types.ParseDate(req.DateOfBirth)
 		if err != nil {
 			return err
 		}
 		user.DateOfBirth = dob
 	}
 	if req.LastGradingDate != "" {
-		lgd, err := parseDate(req.LastGradingDate)
+		lgd, err := types.ParseDate(req.LastGradingDate)
 		if err != nil {
 			return err
 		}

@@ -3,6 +3,7 @@ package auth
 import (
 	"time"
 
+	"github.com/sapiderman/tenkei-register/internal/types"
 	"github.com/uptrace/bun"
 )
 
@@ -62,26 +63,8 @@ type UpdateProfileRequest struct {
 	ConsentMarketing       *bool  `json:"consent_marketing,omitempty"`
 }
 
-// allowedRanks defines the valid rank values for validation.
-// This mirrors the same set used in the register package.
-var allowedRanks = map[string]bool{
-	"":                 true,
-	"10th Kyu":         true,
-	"9th Kyu":          true,
-	"8th Kyu":          true,
-	"7th Kyu":          true,
-	"6th Kyu":          true,
-	"5th Kyu":          true,
-	"4th Kyu":          true,
-	"3rd Kyu":          true,
-	"2nd Kyu":          true,
-	"1st Kyu":          true,
-	"Shodan (1st Dan)": true,
-	"Nidan (2nd Dan)":  true,
-	"Sandan (3rd Dan)": true,
-	"Yondan (4th Dan)": true,
-	"Godan (5th Dan)":  true,
-}
+// allowedRanks delegates to the shared single source of truth in types.
+var allowedRanks = types.AllowedRanks
 
 const (
 	sessionCookieName = "tenkei_session"

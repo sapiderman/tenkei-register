@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sapiderman/tenkei-register/internal/server"
 	"github.com/sapiderman/tenkei-register/internal/types"
 )
 
@@ -80,13 +81,13 @@ func TestProfileFromUser_ZeroDateOmitted(t *testing.T) {
 }
 
 func TestDecodeJSON_MaxBytes(t *testing.T) {
-	// Test that decodeJSON rejects bodies larger than 1 MiB
+	// Test that DecodeJSON rejects bodies larger than 1 MiB
 	bigBody := strings.Repeat(`{"identifier":"a","password":"b","x":"y"}`, 50000) // way too big
 	req := httptest.NewRequest("POST", "/v1/auth/login", strings.NewReader(bigBody))
 	w := httptest.NewRecorder()
 
 	var reqBody LoginRequest
-	err := decodeJSON(w, req, &reqBody)
+	err := server.DecodeJSON(w, req, &reqBody)
 	if err == nil {
 		t.Error("expected error for oversized body, got nil")
 	}
@@ -98,7 +99,7 @@ func TestDecodeJSON_TrailingContent(t *testing.T) {
 	w := httptest.NewRecorder()
 
 	var reqBody LoginRequest
-	err := decodeJSON(w, req, &reqBody)
+	err := server.DecodeJSON(w, req, &reqBody)
 	if err == nil {
 		t.Error("expected error for trailing content, got nil")
 	}
@@ -106,25 +107,25 @@ func TestDecodeJSON_TrailingContent(t *testing.T) {
 
 func TestParseDate(t *testing.T) {
 	// Valid date
-	result, err := parseDate("1990-06-15")
+	result, err := types.ParseDate("1990-06-15")
 	if err != nil {
-		t.Errorf("parseDate(\"1990-06-15\") error: %v", err)
+		t.Errorf("ParseDate(\"1990-06-15\") error: %v", err)
 	}
 	if result.Year() != 1990 || result.Month() != 6 || result.Day() != 15 {
 		t.Errorf("expected 1990-06-15, got %v", result)
 	}
 
 	// Empty string → zero time
-	result, err = parseDate("")
+	result, err = types.ParseDate("")
 	if err != nil {
-		t.Errorf("parseDate(\"\") error: %v", err)
+		t.Errorf("ParseDate(\"\") error: %v", err)
 	}
 	if !result.IsZero() {
 		t.Errorf("expected zero time for empty string, got %v", result)
 	}
 
 	// Invalid format
-	_, err = parseDate("15-06-1990")
+	_, err = types.ParseDate("15-06-1990")
 	if err == nil {
 		t.Error("expected error for invalid date format, got nil")
 	}

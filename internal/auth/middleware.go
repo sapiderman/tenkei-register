@@ -3,6 +3,8 @@ package auth
 import (
 	"context"
 	"net/http"
+
+	"github.com/sapiderman/tenkei-register/internal/server"
 )
 
 type ctxKeyUserID struct{}
@@ -16,14 +18,14 @@ func (a *authenticator) sessionRequired(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(sessionCookieName)
 		if err != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
 			return
 		}
 
 		userID, err := a.sessions.Validate(r.Context(), cookie.Value)
 		if err != nil {
 			a.clearSessionCookie(w)
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired"})
+			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired"})
 			return
 		}
 
