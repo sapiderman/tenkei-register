@@ -23,7 +23,7 @@ dev:
 
 build: lint
 	#go build -a -o $(IMAGE_NAME) main.go
-	go build -a -ldflags '-extldflags "-static"' -o $(IMAGE_NAME) main.go
+	go build -buildvcs=false -a -ldflags '-extldflags "-static"' -o $(IMAGE_NAME) main.go
 
 clean:
 	go clean
@@ -31,7 +31,7 @@ clean:
 
 lint:
 	go fmt ./...
-	staticcheck ./...
+	GOFLAGS=-buildvcs=false staticcheck ./...
 
 test-short: lint
 	go test ./... -v -covermode=count -coverprofile=coverage.out -short
