@@ -4,7 +4,7 @@ This repository handles back end services.
 
 ## Development Overview
 
-- The stack is based on Golang 1.25.x
+- The stack is based on Golang 1.26.x
 - Data is stored in a Postgres database.
 - Routes are handled using chi router.
 
@@ -34,7 +34,7 @@ The Dev Container mounts the workspace at `/workspace` and runs `go mod download
 - Config.yaml.config:
   - `database.connection_string` (on the app service): `postgres://db_user:db_password@db:5432/tenkei?sslmode=disable`
 
-Go toolchain: [go.mod](go.mod) declares Go `1.25.5`. The devcontainer image tracks Go 1.x; if you need to pin to exactly 1.25, we can switch to a tagged image.
+Go toolchain: [go.mod](go.mod) declares Go `1.26.3`. The devcontainer image tracks Go 1.x; if you need to pin to exactly 1.26, we can switch to a tagged image.
 
 ## Common Commands
 

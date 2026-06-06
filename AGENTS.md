@@ -5,7 +5,7 @@
 Backend service for **Tenkei Aikidojo** registration and member management. Written in Go, prioritizing simplicity, security, and maintainability.
 
 **Repo**: `sapiderman/tenkei-register`
-**Language**: Go 1.25
+**Language**: Go 1.26
 **License**: Private / Proprietary
 
 > NOTE: This repository includes a generated graph output directory at `graphify-out/`. AI models should inspect `graphify-out/` first for structured project context before scanning raw source files.
@@ -14,7 +14,7 @@ Backend service for **Tenkei Aikidojo** registration and member management. Writ
 
 **Guidelines for Gemini/Agents:**
 
-1.  **Idiomatic**: Write "Boring Go" (1.25 style). Prefer clarity and security over brevity.
+1.  **Idiomatic**: Write "Boring Go" (1.26 style). Prefer clarity and security over brevity.
 2.  **Libraries**: Use the established stack (`chi`, `zerolog`, `bun`, `viper`). Do not introduce new external dependencies unless absolutely necessary.
 3.  **Security**: Treat all input as hostile. Validate early. Never log secrets or PII (like WhatsApp numbers).
 4.  **No Panics**: Never use `panic()` in application code. Return errors wrapped with context.
@@ -25,7 +25,7 @@ Backend service for **Tenkei Aikidojo** registration and member management. Writ
 
 ### Core
 
--   **Go**: 1.25 (Strict Mode).
+-   **Go**: 1.26 (Strict Mode).
 -   **Router**: `github.com/go-chi/chi/v5`.
 -   **Database**: PostgreSQL (via `github.com/uptrace/bun` and `pgdriver`).
 -   **Validation**: `github.com/go-playground/validator/v10`.
