@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 
 	"github.com/rs/zerolog/log"
 	"github.com/sapiderman/tenkei-register/internal/types"
@@ -23,7 +25,12 @@ func NewBcryptVerifier(db *bun.DB) Verifier {
 func (v *BcryptVerifier) Verify(ctx context.Context, identifier, password string) (int64, bool, error) {
 	user, err := v.findUserByIdentifier(ctx, identifier)
 	if err != nil {
-		return 0, false, ErrInvalidCredentials
+		// Only mask not-found as invalid credentials; propagate DB errors upstream
+		// so the handler can respond 500 for infrastructure failures.
+		if errors.Is(err, ErrInvalidCredentials) {
+			return 0, false, ErrInvalidCredentials
+		}
+		return 0, false, err
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
@@ -36,7 +43,9 @@ func (v *BcryptVerifier) Verify(ctx context.Context, identifier, password string
 }
 
 // findUserByIdentifier looks up a user by email OR WhatsApp number.
-// Returns ErrInvalidCredentials (not ErrUserNotFound) to prevent user enumeration.
+// Returns ErrInvalidCredentials when the user is not found (prevents enumeration).
+// Returns the raw error for all other failures (DB connectivity, timeouts, etc.)
+// so the caller can surface them as 500 instead of masking outages.
 func (v *BcryptVerifier) findUserByIdentifier(ctx context.Context, identifier string) (*types.User, error) {
 	var user types.User
 	err := v.db.NewSelect().
@@ -44,7 +53,10 @@ func (v *BcryptVerifier) findUserByIdentifier(ctx context.Context, identifier st
 		Where("email = ? OR whatsapp_number = ?", identifier, identifier).
 		Scan(ctx)
 	if err != nil {
-		return nil, ErrInvalidCredentials
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, err
 	}
 	return &user, nil
 }

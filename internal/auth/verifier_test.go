@@ -94,3 +94,27 @@ func TestBcryptVerifier_LoginByWhatsApp(t *testing.T) {
 		t.Error("expected requires2FA=false, got true")
 	}
 }
+
+func TestBcryptVerifier_DatabaseError(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Close the underlying SQL connection to simulate a DB failure.
+	sqldb := db.DB
+	sqldb.Close()
+
+	v := NewBcryptVerifier(db)
+	gotID, requires2FA, err := v.Verify(t.Context(), "verifier-dberr@example.com", "anypassword")
+	if err == nil {
+		t.Fatal("expected error for DB failure, got nil")
+	}
+	// Must NOT be ErrInvalidCredentials — DB errors must propagate so the handler returns 500.
+	if err == ErrInvalidCredentials {
+		t.Error("DB error must not be masked as ErrInvalidCredentials")
+	}
+	if gotID != 0 {
+		t.Errorf("expected userID 0, got %d", gotID)
+	}
+	if requires2FA {
+		t.Error("expected requires2FA=false, got true")
+	}
+}
