@@ -29,7 +29,7 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 		logger:           logger,
 		validate:         validate,
 		db:               db,
-		templates:        template.Must(template.ParseGlob("internal/templates/*.html")),
+		templates:        template.Must(template.ParseFiles("internal/templates/register.html")),
 		turnstileSecret:  cfg.Server.TurnstileSecret,
 		turnstileEnabled: cfg.Server.TurnstileEnabled,
 	}

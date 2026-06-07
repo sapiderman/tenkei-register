@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/sapiderman/tenkei-register/internal/server"
+	"github.com/sapiderman/tenkei-register/internal/types"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -60,43 +60,10 @@ func sanitizeFormData(d RegistrationFormData) RegistrationFormData {
 	return d
 }
 
-// parseDate safely parses a date string in YYYY-MM-DD format.
-// Returns zero time for empty input and an error for invalid formats.
-func parseDate(dateStr string) (time.Time, error) {
-	if dateStr == "" {
-		return time.Time{}, nil
-	}
-	t, err := time.Parse("2006-01-02", dateStr)
-	if err != nil {
-		return time.Time{}, errors.New("invalid date format, use YYYY-MM-DD")
-	}
-	return t, nil
-}
-
 // parseCheckbox returns true if the checkbox value indicates it was checked.
 func parseCheckbox(value string) bool {
 	v := strings.ToLower(strings.TrimSpace(value))
 	return v == "true" || v == "on" || v == "1"
-}
-
-// allowedRanks defines the valid rank values for validation.
-var allowedRanks = map[string]bool{
-	"":                 true, // empty is allowed
-	"10th Kyu":         true,
-	"9th Kyu":          true,
-	"8th Kyu":          true,
-	"7th Kyu":          true,
-	"6th Kyu":          true,
-	"5th Kyu":          true,
-	"4th Kyu":          true,
-	"3rd Kyu":          true,
-	"2nd Kyu":          true,
-	"1st Kyu":          true,
-	"Shodan (1st Dan)": true,
-	"Nidan (2nd Dan)":  true,
-	"Sandan (3rd Dan)": true,
-	"Yondan (4th Dan)": true,
-	"Godan (5th Dan)":  true,
 }
 
 // wantsJSON checks if the client expects or sends JSON.
@@ -104,13 +71,6 @@ func wantsJSON(req *http.Request) bool {
 	ct := strings.ToLower(req.Header.Get("Content-Type"))
 	accept := strings.ToLower(req.Header.Get("Accept"))
 	return strings.Contains(ct, "application/json") || strings.Contains(accept, "application/json")
-}
-
-// writeJSON writes a JSON response with the given status code.
-func writeJSON(w http.ResponseWriter, status int, v interface{}) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }
 
 // RenderError implements server.ErrorResponder interface
@@ -289,12 +249,12 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&payload); err != nil {
 			r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
 			return
 		}
 		if err := decoder.Decode(&struct{}{}); err != io.EOF {
 			r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
 			return
 		}
 
@@ -407,7 +367,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	}
 
 	// Validate rank (must be from allowed list)
-	if !allowedRanks[formData.Rank] {
+	if !types.AllowedRanks[formData.Rank] {
 		formData.Error = "Invalid rank selected."
 		r.logger.Warn().Caller().Msg(formData.Error)
 		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
@@ -448,7 +408,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	dateOfBirth, err := parseDate(formData.DateOfBirth)
+	dateOfBirth, err := types.ParseDate(formData.DateOfBirth)
 	if err != nil {
 		formData.Error = "Date of birth must be in YYYY-MM-DD format."
 		r.logger.Warn().Caller().Msg(formData.Error)
@@ -456,7 +416,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	lastGradingDate, err := parseDate(formData.LastGradingDate)
+	lastGradingDate, err := types.ParseDate(formData.LastGradingDate)
 	if err != nil {
 		formData.Error = "Last grading date must be in YYYY-MM-DD format."
 		r.logger.Warn().Caller().Msg(formData.Error)

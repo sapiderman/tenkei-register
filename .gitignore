@@ -138,3 +138,11 @@ graphify-out
 
 # antigravity
 .antigravitycli
+
+# zed
+.zed
+
+## Local configuration files
+config.yaml
+.env
+.env.local
