@@ -83,7 +83,7 @@ func TestDecodeAndValidate(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		var target testReq
-		err := DecodeAndValidate(req, w, &target, validate)
+		err := DecodeAndValidate(w, req, &target, validate)
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -95,9 +95,33 @@ func TestDecodeAndValidate(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		var target testReq
-		err := DecodeAndValidate(req, w, &target, validate)
+		err := DecodeAndValidate(w, req, &target, validate)
 		if err == nil {
 			t.Error("expected validation error, got nil")
+		}
+	})
+
+	t.Run("trailing content", func(t *testing.T) {
+		body := `{"email":"test@example.com"}{"junk":true}`
+		req := httptest.NewRequest("POST", "/test", strings.NewReader(body))
+		w := httptest.NewRecorder()
+
+		var target testReq
+		err := DecodeAndValidate(w, req, &target, validate)
+		if err == nil {
+			t.Error("expected error for trailing content, got nil")
+		}
+	})
+
+	t.Run("trailing text", func(t *testing.T) {
+		body := `{"email":"test@example.com"}extra`
+		req := httptest.NewRequest("POST", "/test", strings.NewReader(body))
+		w := httptest.NewRecorder()
+
+		var target testReq
+		err := DecodeAndValidate(w, req, &target, validate)
+		if err == nil {
+			t.Error("expected error for trailing text, got nil")
 		}
 	})
 }

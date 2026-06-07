@@ -72,7 +72,7 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 	userID := userIDFromContext(r.Context())
 
 	var req UpdateProfileRequest
-	if err := server.DecodeAndValidate(r, w, &req, a.validate); err != nil {
+	if err := server.DecodeAndValidate(w, r, &req, a.validate); err != nil {
 		return // DecodeAndValidate writes the error response
 	}
 
@@ -119,8 +119,8 @@ func (a *authenticator) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 // mask partially hides sensitive identifiers in logs.
-// "test@example.com" → "t***m"
-// "+62812345678" → "+62*********8"
+// "test@example.com" → "t***************m"
+// "+62812345678" → "+**********8"
 func mask(s string) string {
 	if len(s) <= 2 {
 		return "***"

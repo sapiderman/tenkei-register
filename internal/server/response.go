@@ -40,11 +40,16 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, v interface{}) error {
 }
 
 // DecodeAndValidate decodes JSON, then validates with go-playground/validator.
-func DecodeAndValidate(r *http.Request, w http.ResponseWriter, v interface{}, validate *validator.Validate) error {
+func DecodeAndValidate(w http.ResponseWriter, r *http.Request, v interface{}, validate *validator.Validate) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(v); err != nil {
+		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
+		return err
+	}
+	// Ensure no trailing content
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
 		WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON payload"})
 		return err
 	}

@@ -66,4 +66,3 @@ func insertTestUser(t *testing.T, db *bun.DB, email, whatsapp, passwordHash stri
 
 	return id
 }
-
