@@ -2,6 +2,7 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"time"
 
@@ -36,7 +37,7 @@ func XCFBypass(key string) func(next http.Handler) http.Handler {
 				server.SendSimpleResponse(w, http.StatusNotFound, "Not Found")
 				return
 			}
-			if bypass != key {
+			if subtle.ConstantTimeCompare([]byte(bypass), []byte(key)) != 1 {
 				log.Error().Caller().
 					Str("method", r.Method).
 					Str("path", r.URL.Path).
