@@ -23,18 +23,18 @@ The Dev Container mounts the workspace at `/workspace` and runs `go mod download
 - Database: Postgres 18 service defined in compose
 - Forwarded ports:
   - 5432 → Postgres
-  - 8080 → Reserved for app server (if/when you listen on it)
+  - 3000 → App server
 
 ## Configuration
 
-- Compose environment in [.dev/docker-compose.yml](.dev/docker-compose.yml):
+- Compose environment in [.devcontainer/docker-compose.yml](.devcontainer/docker-compose.yml):
   - `POSTGRES_USER`: `db_user`
   - `POSTGRES_PASSWORD`: `db_password`
   - `POSTGRES_DB`: `tenkei`
 - Config.yaml.config:
   - `database.connection_string` (on the app service): `postgres://db_user:db_password@db:5432/tenkei?sslmode=disable`
 
-Go toolchain: [go.mod](go.mod) declares Go `1.26.3`. The devcontainer image tracks Go 1.x; if you need to pin to exactly 1.26, we can switch to a tagged image.
+Go toolchain: [go.mod](go.mod) declares Go `1.26.4`. The devcontainer image tracks Go 1.x; if you need to pin to exactly 1.26.4, we can switch to a tagged image.
 
 ## Common Commands
 

@@ -1,6 +1,6 @@
 # Tenkei Register Backend
 
-**Repo**: `sapiderman/tenkei-register` | **Language**: Go 1.26 | **License**: Private
+**Repo**: `sapiderman/tenkei-register` | **Language**: Go 1.26.4 | **License**: MIT
 
 ## AI Rules
 
@@ -11,6 +11,7 @@
 5. No global state. Use dependency injection.
 6. Write unit tests for all new handlers, middleware, and database functions. Aim for 100% coverage on new code.
 7. Read and load the [Kaparthy Guidelines](https://github.com/sapiderman/andrej-karpathy-skills/blob/main/skills/karpathy-guidelines/SKILL.md) before suggesting changes or writing any code. This is your compass for code quality and style.
+8. Minimize DB round-trips and in-process CPU. The app runs on Cloud Run (metered per-request) and the DB on Neon free-tier compute (metered, scale-to-zero). Prefer one batched query over a loop of queries; push filtering/count/pagination into SQL; avoid heavy computes in the request path. See [Resource Constraints](#resource-constraints-free-tier).
 
 ## Tech Stack
 
@@ -27,13 +28,14 @@
 ├── main.go
 ├── config/                  # Viper config (env vars + YAML)
 ├── internal/
+│   ├── server.go            # StartServer, ServeWith (graceful shutdown)
+│   ├── http.go              # NewHTTPHandler, middleware wiring
 │   ├── auth/                # Login, session, profile
-│   ├── register/           # Registration (HTML + JSON dual-format)
-│   ├── templates/          # HTML template (register.html)
-│   ├── types/              # Shared bun models: User, Audit
+│   ├── register/           # Registration (JSON)
+│   ├── types/              # Shared bun models: User, Audit, Ranks, parse helpers
 │   ├── database/           # DB connection + query logging hook
 │   ├── middleware/          # XCFBypass, AccessLog
-│   └── server/             # StartServer, ServeWith, response helpers, ErrorResponder
+│   └── server/             # JSON response helpers (WriteJSON, DecodeJSON, DecodeAndValidate)
 ├── migrations/
 ├── .devcontainer/           # Go + PostgreSQL dev environment
 ├── Dockerfile               # Multi-stage build (scratch)
@@ -44,12 +46,13 @@
 
 | Method | Path | Middleware | Purpose |
 | ------ | ---- | ---------- | ------- |
-| POST | `/v1/register/` | XCFBypass + rate-limit (5/min/IP) + Turnstile | New member registration (HTML form or JSON) |
+| POST | `/v1/register/` | XCFBypass + rate-limit (5/min/IP) | New member registration (JSON) |
 | GET | `/v1/register/count` | XCFBypass + rate-limit (5/min/IP) | Total registered user count |
 | POST | `/v1/auth/login` | XCFBypass + rate-limit (10/min/IP) | Session login (JSON) |
 | GET | `/v1/auth/profile` | XCFBypass + session cookie | View profile |
 | PUT | `/v1/auth/profile` | XCFBypass + session cookie | Update profile |
 | POST | `/v1/auth/logout` | XCFBypass + session cookie | Invalidate session |
+| POST | `/v1/auth/logout-all` | XCFBypass + session cookie | Revoke all sessions (compromise response) |
 | GET | `/health` | None (before XCFBypass) | Liveness probe |
 
 ## Middleware Stack (in order)
@@ -60,15 +63,36 @@ Applied in `internal/http.go`. Order matters.
 
 - `/health` bypasses `XCFBypass` (check #4 before #5).
 - Auth endpoints additionally use `sessionRequired` middleware (inside `auth.NewRouter`).
+- Turnstile is **not** middleware — it's verified inline in the register handler (`verifyTurnstileResponse`), gated by `TENKEI_SERVER_TURNSTILE_ENABLED`.
 
 ## Key Architecture Decisions
 
-- **Dual-format endpoints**: Register routes serve both HTML (via `html/template`) and JSON, selected by `Content-Type` header. The `server.ErrorResponder` interface abstracts this pattern.
+- **JSON-only endpoints**: All routes accept and return JSON. Input strings are HTML-escaped (`html.EscapeString`) before storage to prevent XSS.
 - **Anti-enumeration**: Login returns identical `401 "invalid credentials"` for wrong password and nonexistent user.
 - **Session cookies**: `HttpOnly`, `Secure` in production, `SameSite=Lax`, scoped to `/v1/auth`.
 - **PII masking**: Login failures log `mask(identifier)` only — never raw email/WhatsApp.
 - **Connection pool**: 25 max open, 10 idle, 5-minute lifetime.
 - **Server timeouts**: Read/Write 10s, Idle 120s, ReadHeaderTimeout from config (default 5s).
+
+## Resource Constraints (Free Tier)
+
+Both the app (Cloud Run) and DB (Neon Postgres free tier) run on metered/scaling compute. Optimize for few round-trips and cheap request paths — see AI Rule 8.
+
+| Resource | Limit | Implication |
+| --- | --- | --- |
+| Cloud Run CPU | Billed per request | No background workers/tickers (instance dies on scale-to-zero). Scheduled cleanup must be an **external trigger** (e.g. Cloud Scheduler → protected endpoint), never an in-process goroutine. |
+| Neon compute | 100 CU-hours/month | DB sleeps after 5 min idle. Keep queries cheap; `pg_cron` only runs while awake, so it is **not** reliable here. |
+| Neon storage | 0.5 GB / project | Bounded but slow-growing: `sessions`/`audit` accumulate ~MB/year at dojo scale. Not a near-term ceiling. |
+| Neon egress | 5 GB/month | Avoid `SELECT *`, missing pagination, and N+1 reads — every byte read out counts. |
+
+Rules of thumb:
+
+- One query per intent, not per row. Use `bun` batch / `IN (...)` / joins; never loop queries in Go.
+- Filter, count, and paginate in SQL — not in app memory after a full fetch.
+- No goroutine pools, tickers, or long-running workers in the app.
+- Connection pool is fixed at 25 open / 10 idle / 5-min lifetime — don't open ad-hoc connections.
+
+> **Deferred — audit-table self-cleanup.** Designed but not built (YAGNI): opportunistic prune of oldest `audit` rows past a configurable threshold (`db.audit_cleanup_max_rows`, default ~50,000), gated cheaply per-write via `pg_class.reltuples` (no seq scan — honors Rule 8), emitting a structured `Warn` log (`event=table_cleanup`, for Cloud Log Explorer) + a `cleanup` audit row. Deferred because `audit` grows ~MB/year at dojo scale and won't cross ~50k rows for years. Revisit when it approaches ~50k rows or traffic scales up. Same pattern fits `sessions` if needed.
 
 ## Configuration
 
@@ -83,6 +107,23 @@ Viper merges: env vars (`TENKEI_` prefix) > `config.yaml` > compiled defaults. `
 | `TENKEI_SERVER_TURNSTILE_SECRET_KEY` | — | Cloudflare Turnstile secret |
 | `TENKEI_SERVER_TURNSTILE_ENABLED` | `true` | Toggle Turnstile verification |
 | `TENKEI_SERVER_READ_HEADER_TIMEOUT` | `5s` | Prevent Slowloris attacks |
+| `TENKEI_SERVER_VERSION` | `0.0.5-YYYYMMDD` | Reported in startup log |
+
+## Local Development
+
+Required env vars (no defaults — the app will not start without them):
+
+- `TENKEI_DATABASE_CONNECTION_STRING` — Postgres DSN (e.g. `postgres://db_user:db_password@127.0.0.1:5451/tenkei?sslmode=disable`).
+- `TENKEI_SERVER_X_CF_BYPASS` — shared header secret. If empty, **every** request returns 404 (constant-time compare against an empty key always fails).
+- For local login/register testing, set `TENKEI_SERVER_TURNSTILE_ENABLED=false` to skip Cloudflare Turnstile.
+
+```bash
+docker compose -f .devcontainer/compose.yml up -d   # start Postgres
+make migration_up   # apply migrations (golang-migrate) — REQUIRED before first run
+make dev            # go run main.go
+```
+
+> **Migrations are manual.** The app never runs them on startup. Skipping them causes 500s on the first DB write — a missing `sessions` table produced a real 500 on login. See `migrations/` and `make migration_up` / `migration_down` / `migration_fix`.
 
 ## Release Gates
 
@@ -97,6 +138,8 @@ gosec ./...        # Security scan
 make build         # Produces ./tenkei-be-img
 ```
 
+> **`make test` needs a live DB.** DB-backed tests call `t.Skip` when `TENKEI_DATABASE_CONNECTION_STRING` is unset or unreachable, so `make test` reports a **false green** with near-zero real coverage without it. Always point it at a migrated Postgres before trusting coverage. `make test-short` (`-short`) runs only the non-DB tests.
+
 Known baseline: `gosec` `G117` on `password` fields in JSON structs. Acceptable only when the struct is never logged.
 
 **Commit style**: Conventional Commits (`feat:`, `fix:`, `chore:`, `sec:`).
@@ -105,9 +148,8 @@ Known baseline: `gosec` `G117` on `password` fields in JSON structs. Acceptable 
 
 - **`Verifier`** — Today `BcryptVerifier`; decorator pattern for 2FA (`requires2FA` seam ready)
 - **`SessionStore`** — Today `DBSessionStore`; swap for Redis when scaling
-- **`PasswordResetter`** — Defined, not implemented. Seam for forgot-password flow.
-- **`ErrorResponder`** — Abstracts HTML vs JSON rendering; implement for new content types.
+- **`PasswordResetter`** — Defined in `auth/interfaces.go`, not yet implemented. Seam for forgot-password flow.
 
 ---
 
-**Last Updated**: Jun 2026 | **Maintainer**: Tenkei Dev Team
+**Last Updated**: Aug 2026 | **Maintainer**: Tenkei Dev Team

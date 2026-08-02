@@ -10,7 +10,7 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${fileDirname}"
+            "program": "${workspaceFolder}"
         },
              {
             "name": "Debug mode",
@@ -18,7 +18,12 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceRoot}/main.go",
-            "env": {},
+            "env": {
+                "SERVER_TURNSTILE_ENABLED": "false",
+                "SERVER_TURNSTILE_SECRET_KEY": "1x00000000000000000000AA",
+                "SERVER_X_CF_BYPASS": "123",
+                "DATABASE_URL": "postgres://tenkei:tenkei@localhost:5451/tenkei?sslmode=disable"
+            },
             "args": [""]
         },
     ]
