@@ -118,6 +118,23 @@ func (a *authenticator) handleLogout(w http.ResponseWriter, r *http.Request) {
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleLogoutAll invalidates every session for the authenticated user and
+// clears the local cookie. Use after a suspected compromise.
+func (a *authenticator) handleLogoutAll(w http.ResponseWriter, r *http.Request) {
+	userID := userIDFromContext(r.Context())
+
+	if err := a.sessions.InvalidateAll(r.Context(), userID); err != nil {
+		log.Error().Err(err).Int64("user_id", userID).Msg("all-session invalidation failed")
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	a.clearSessionCookie(w)
+	a.audit(r.Context(), userID, "logout_all")
+	log.Info().Int64("user_id", userID).Msg("all sessions invalidated")
+	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // mask partially hides sensitive identifiers in logs.
 // "test@example.com" → "t***************m"
 // "+62812345678" → "+**********8"

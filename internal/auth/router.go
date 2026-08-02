@@ -54,6 +54,7 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 			r.Get("/profile", a.handleGetProfile)
 			r.Put("/profile", a.handleUpdateProfile)
 			r.Post("/logout", a.handleLogout)
+			r.Post("/logout-all", a.handleLogoutAll)
 		})
 	})
 }

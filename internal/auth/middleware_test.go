@@ -9,10 +9,11 @@ import (
 
 // mockSessionStore implements SessionStore for testing.
 type mockSessionStore struct {
-	validateResult int64
-	validateErr    error
-	invalidateErr  error
-	createErr      error
+	validateResult   int64
+	validateErr      error
+	invalidateErr    error
+	invalidateAllErr error
+	createErr        error
 }
 
 func (m *mockSessionStore) Create(ctx context.Context, userID int64, verified bool) (string, error) {
@@ -28,7 +29,7 @@ func (m *mockSessionStore) Invalidate(ctx context.Context, sessionID string) err
 	return m.invalidateErr
 }
 func (m *mockSessionStore) InvalidateAll(ctx context.Context, userID int64) error {
-	return nil
+	return m.invalidateAllErr
 }
 
 func TestSessionRequired_MissingCookie(t *testing.T) {

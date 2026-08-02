@@ -401,6 +401,81 @@ func TestHandleLogout_InvalidateError(t *testing.T) {
 	assertSessionCookieCleared(t, w)
 }
 
+func TestHandleLogoutAll_Success(t *testing.T) {
+	db := setupTestDB(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "logout-all@example.com", "+628600000001", string(hash))
+
+	// Two active sessions, as if logged in from two devices.
+	store := NewDBSessionStore(db)
+	s1, err := store.Create(t.Context(), userID, true)
+	if err != nil {
+		t.Fatalf("create session 1: %v", err)
+	}
+	s2, err := store.Create(t.Context(), userID, true)
+	if err != nil {
+		t.Fatalf("create session 2: %v", err)
+	}
+
+	a := &authenticator{
+		logger:   zerolog.Nop(),
+		validate: validator.New(),
+		db:       db,
+		sessions: store,
+		cookies:  cookieConfig{Path: "/v1/auth"},
+	}
+
+	req := withUserID(httptest.NewRequest("POST", "/v1/auth/logout-all", nil), userID)
+	w := httptest.NewRecorder()
+	a.handleLogoutAll(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body: %s)", w.Code, w.Body.String())
+	}
+	assertSessionCookieCleared(t, w)
+
+	// Both sessions must be gone from the DB.
+	var count int
+	err = db.NewRaw(`SELECT COUNT(*) FROM sessions WHERE user_id = ? AND id IN (?, ?)`, userID, s1, s2).Scan(t.Context(), &count)
+	if err != nil {
+		t.Fatalf("sessions query: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 remaining sessions, got %d", count)
+	}
+
+	// The revocation must be audited.
+	var auditCount int
+	err = db.NewRaw(`SELECT COUNT(*) FROM audit WHERE user_id = ? AND action = 'logout_all'`, userID).Scan(t.Context(), &auditCount)
+	if err != nil {
+		t.Fatalf("audit query: %v", err)
+	}
+	if auditCount != 1 {
+		t.Errorf("expected 1 logout_all audit row, got %d", auditCount)
+	}
+}
+
+func TestHandleLogoutAll_InvalidateAllError(t *testing.T) {
+	s := &mockSessionStore{invalidateAllErr: errors.New("db down")}
+	a := &authenticator{
+		logger:   zerolog.Nop(),
+		sessions: s,
+		cookies:  cookieConfig{Path: "/v1/auth"},
+	}
+
+	req := withUserID(httptest.NewRequest("POST", "/v1/auth/logout-all", nil), 1)
+	w := httptest.NewRecorder()
+	a.handleLogoutAll(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("expected 500, got %d", w.Code)
+	}
+	// Cookie must NOT be cleared on failure — the user must know revocation failed.
+	if c := w.Result().Header.Get("Set-Cookie"); c != "" {
+		t.Errorf("expected no Set-Cookie on failure, got %q", c)
+	}
+}
+
 func TestMask(t *testing.T) {
 	tests := []struct {
 		input    string
