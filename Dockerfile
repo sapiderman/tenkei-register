@@ -25,8 +25,7 @@ WORKDIR /app
 # Copy the Pre-built binary from the previous stage
 COPY --from=builder /app/main .
 
-# Copy necessary static files and config
-COPY --from=builder /app/internal/templates ./internal/templates
+# Copy necessary config
 COPY --from=builder /app/migrations ./migrations
 
 # add non-root user and switch to it

@@ -48,7 +48,7 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "production")
 	viper.SetDefault("server.read_header_timeout", "5s")
-	viper.SetDefault("server.version", "0.0.4-20260607")
+	viper.SetDefault("server.version", "0.0.5-20260801")
 	viper.SetDefault("server.turnstile_enabled", true)
 
 	// 2. Load Config File

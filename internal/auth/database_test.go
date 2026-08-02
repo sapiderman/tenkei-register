@@ -142,6 +142,52 @@ func TestDBUpdateUserProfile_InvalidRank(t *testing.T) {
 	}
 }
 
+func TestDBUpdateUserProfile_NotFound(t *testing.T) {
+	db := setupTestDB(t)
+	a := &authenticator{logger: zerolog.Nop(), db: db}
+
+	err := a.dbUpdateUserProfile(t.Context(), 999999999, &UpdateProfileRequest{Name: "x"})
+	if err != ErrUserNotFound {
+		t.Errorf("expected ErrUserNotFound, got %v", err)
+	}
+}
+
+func TestDBUpdateUserProfile_InvalidDates(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "date-test@example.com", "+628500000005", string(hash))
+
+	a := &authenticator{logger: zerolog.Nop(), db: db}
+
+	cases := []struct {
+		name string
+		req  *UpdateProfileRequest
+	}{
+		{"invalid date of birth", &UpdateProfileRequest{DateOfBirth: "not-a-date"}},
+		{"invalid last grading date", &UpdateProfileRequest{LastGradingDate: "2024/01/01"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := a.dbUpdateUserProfile(t.Context(), userID, tc.req)
+			if err == nil {
+				t.Error("expected error for invalid date")
+			}
+		})
+	}
+}
+
+func TestAudit_ClosedDB(t *testing.T) {
+	// An audit insert against a closed connection hits the error-log branch.
+	db := setupTestDB(t)
+	a := &authenticator{logger: zerolog.Nop(), db: db}
+
+	if err := db.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	a.audit(t.Context(), 1, "test_action_closed_") // must not panic
+}
+
 func TestAudit(t *testing.T) {
 	db := setupTestDB(t)
 

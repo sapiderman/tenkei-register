@@ -16,9 +16,8 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// RegistrationFormData holds form data and validation state for template rendering.
+// RegistrationFormData is the JSON request shape for POST /v1/register/.
 type RegistrationFormData struct {
-	// Form values
 	Email                  string `json:"email"`
 	Name                   string `json:"name"`
 	WhatsApp               string `json:"whatsapp"`
@@ -33,9 +32,6 @@ type RegistrationFormData struct {
 	EmergencyContactName   string `json:"emergency_contact_name"`
 	EmergencyContactNumber string `json:"emergency_contact_number"`
 	CfTurnstileResponse    string `json:"cf_turnstile_response"`
-
-	// Error message for display
-	Error string
 }
 
 // sanitizeInput trims whitespace and escapes HTML to prevent XSS attacks.
@@ -58,29 +54,6 @@ func sanitizeFormData(d RegistrationFormData) RegistrationFormData {
 	d.EmergencyContactNumber = sanitizeInput(d.EmergencyContactNumber)
 	d.CfTurnstileResponse = sanitizeInput(d.CfTurnstileResponse)
 	return d
-}
-
-// parseCheckbox returns true if the checkbox value indicates it was checked.
-func parseCheckbox(value string) bool {
-	v := strings.ToLower(strings.TrimSpace(value))
-	return v == "true" || v == "on" || v == "1"
-}
-
-// wantsJSON checks if the client expects or sends JSON.
-func wantsJSON(req *http.Request) bool {
-	ct := strings.ToLower(req.Header.Get("Content-Type"))
-	accept := strings.ToLower(req.Header.Get("Accept"))
-	return strings.Contains(ct, "application/json") || strings.Contains(accept, "application/json")
-}
-
-// RenderError implements server.ErrorResponder interface
-func (r *registrar) RenderError(w http.ResponseWriter, blockName string, data interface{}) {
-	formData, ok := data.(RegistrationFormData)
-	if !ok {
-		http.Error(w, "Internal Error", http.StatusInternalServerError)
-		return
-	}
-	r.renderRegistrationBlock(w, blockName, formData)
 }
 
 func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) error {
@@ -125,7 +98,11 @@ func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) err
 		Str("remoteIP", remoteIP).
 		Msg("Sending Turnstile verification request")
 
-	resp, err := http.PostForm("https://challenges.cloudflare.com/turnstile/v0/siteverify", form)
+	verifyURL := r.turnstileVerifyURL
+	if verifyURL == "" {
+		verifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+	}
+	resp, err := http.PostForm(verifyURL, form)
 	if err != nil {
 		r.logger.Error().
 			Err(err).
@@ -229,207 +206,140 @@ func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) err
 }
 
 func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
-	isJSON := wantsJSON(req)
-
-	var formData RegistrationFormData
-	var password string
-	var passwordConfirm string
-
-	if isJSON {
-		// Decode JSON body
-		type apiRegistrationRequest struct {
-			RegistrationFormData `json:",inline"`
-			Password             string `json:"password" validate:"required"`         // #nosec G117
-			PasswordConfirm      string `json:"password_confirm" validate:"required"` // #nosec G117
-		}
-
-		req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
-		var payload apiRegistrationRequest
-		decoder := json.NewDecoder(req.Body)
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&payload); err != nil {
-			r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
-			return
-		}
-		if err := decoder.Decode(&struct{}{}); err != io.EOF {
-			r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
-			return
-		}
-
-		// Ensure checkbox values are respected if coming as strings (already bool in JSON)
-		formData = sanitizeFormData(payload.RegistrationFormData)
-		password = payload.Password
-		passwordConfirm = payload.PasswordConfirm
-	} else {
-		// Parse form data
-		if err := req.ParseForm(); err != nil {
-			r.logger.Debug().Caller().Err(err).Msg("failed to parse form")
-			http.Error(w, "Invalid form data", http.StatusBadRequest)
-			return
-		}
-
-		// Extract and sanitize all form values
-		formData = RegistrationFormData{
-			Name:                   sanitizeInput(req.FormValue("name")),
-			Email:                  sanitizeInput(req.FormValue("email")),
-			WhatsApp:               sanitizeInput(req.FormValue("whatsapp")),
-			DateOfBirth:            sanitizeInput(req.FormValue("date_of_birth")),
-			Dojo:                   sanitizeInput(req.FormValue("dojo")),
-			Rank:                   sanitizeInput(req.FormValue("rank")),
-			LastGradingDate:        sanitizeInput(req.FormValue("last_grading_date")),
-			Role:                   sanitizeInput(req.FormValue("role")),
-			MedicalConditions:      sanitizeInput(req.FormValue("medical_conditions")),
-			EmergencyContactName:   sanitizeInput(req.FormValue("emergency_contact_name")),
-			EmergencyContactNumber: sanitizeInput(req.FormValue("emergency_contact_number")),
-			ConsentDataStore:       parseCheckbox(req.FormValue("consent_datastore")),
-			ConsentMarketingEmails: parseCheckbox(req.FormValue("consent_marketing")),
-			CfTurnstileResponse:    req.FormValue("cf_turnstile_response"),
-		}
-
-		password = req.FormValue("password")
-		passwordConfirm = req.FormValue("password_confirm")
+	// badRequest logs a client error at warn and writes a 400 JSON response.
+	badRequest := func(msg string) {
+		r.logger.Warn().Caller().Msg(msg)
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": msg})
+	}
+	// fail logs an unexpected error (with cause) and writes a JSON response.
+	fail := func(code int, msg string, err error) {
+		r.logger.Error().Caller().Err(err).Msg(msg)
+		server.WriteJSON(w, code, map[string]string{"error": msg})
 	}
 
-	// Verify Turnstile response
-	turnstileToken := formData.CfTurnstileResponse
-	err := r.verifyTurnstileResponse(req, turnstileToken)
-	if err != nil {
-		formData.Error = "Security verification failed. Please try again in a few minutes."
-		r.logger.Error().Caller().Err(err).Msg("Turnstile verification failed")
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+	type apiRegistrationRequest struct {
+		RegistrationFormData `json:",inline"`
+		Password             string `json:"password" validate:"required"`         // #nosec G117
+		PasswordConfirm      string `json:"password_confirm" validate:"required"` // #nosec G117
+	}
+
+	req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
+	var payload apiRegistrationRequest
+	decoder := json.NewDecoder(req.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
+		return
+	}
+
+	formData := sanitizeFormData(payload.RegistrationFormData)
+	password := payload.Password
+	passwordConfirm := payload.PasswordConfirm
+
+	// Verify Turnstile response (if enabled).
+	if err := r.verifyTurnstileResponse(req, formData.CfTurnstileResponse); err != nil {
+		fail(http.StatusBadRequest, "Security verification failed. Please try again in a few minutes.", err)
 		return
 	}
 
 	// Required field: Name
 	if formData.Name == "" {
-		formData.Error = "Name is required."
-		r.logger.Warn().Caller().Msg("Name is required")
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Name is required.")
 		return
 	}
 	if len(formData.Name) > 255 {
-		formData.Error = "Name is too long (max 255 characters)."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Name is too long (max 255 characters).")
 		return
 	}
 
 	// Required field: WhatsApp
 	if formData.WhatsApp == "" {
-		formData.Error = "WhatsApp number is required."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("WhatsApp number is required.")
 		return
 	}
 	if len(formData.WhatsApp) > 20 {
-		formData.Error = "WhatsApp number is too long."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("WhatsApp number is too long.")
 		return
 	}
 
 	// Validate email format (if provided)
 	if formData.Email != "" {
 		if err := r.validate.Var(formData.Email, "email"); err != nil {
-			formData.Error = "Invalid email address."
-			r.logger.Warn().Caller().Msg(formData.Error)
-			server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+			badRequest("Invalid email address.")
 			return
 		}
 	}
 
 	// Required field: Password
 	if password == "" {
-		formData.Error = "Password is required."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Password is required.")
 		return
 	}
 	if len(password) < 8 {
-		formData.Error = "Password must be at least 8 characters."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Password must be at least 8 characters.")
 		return
 	}
 	if len(password) > 72 { // bcrypt limit
-		formData.Error = "Password is too long (max 72 characters)."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Password is too long (max 72 characters).")
 		return
 	}
 	if password != passwordConfirm {
-		formData.Error = "Passwords do not match."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Passwords do not match.")
 		return
 	}
 
 	// Validate rank (must be from allowed list)
 	if !types.AllowedRanks[formData.Rank] {
-		formData.Error = "Invalid rank selected."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Invalid rank selected.")
 		return
 	}
 
 	// Required: Data storage consent
 	if !formData.ConsentDataStore {
-		formData.Error = "You must consent to data storage to register."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("You must consent to data storage to register.")
 		return
 	}
 
 	// Validate field lengths for security
 	if len(formData.Dojo) > 255 {
-		formData.Error = "Dojo name is too long."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Dojo name is too long.")
 		return
 	}
 	if len(formData.MedicalConditions) > 2000 {
-		formData.Error = "Medical conditions text is too long."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Medical conditions text is too long.")
 		return
 	}
 	if len(formData.EmergencyContactName) > 255 {
-		formData.Error = "Emergency contact name is too long."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Emergency contact name is too long.")
 		return
 	}
 	if len(formData.EmergencyContactNumber) > 20 {
-		formData.Error = "Emergency contact number is too long."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Emergency contact number is too long.")
 		return
 	}
 
 	dateOfBirth, err := types.ParseDate(formData.DateOfBirth)
 	if err != nil {
-		formData.Error = "Date of birth must be in YYYY-MM-DD format."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Date of birth must be in YYYY-MM-DD format.")
 		return
 	}
 
 	lastGradingDate, err := types.ParseDate(formData.LastGradingDate)
 	if err != nil {
-		formData.Error = "Last grading date must be in YYYY-MM-DD format."
-		r.logger.Warn().Caller().Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusBadRequest, formData.Error, r, "register-form", formData)
+		badRequest("Last grading date must be in YYYY-MM-DD format.")
 		return
 	}
 
 	// --- Build User struct ---
 	hashedPwd, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
-		r.logger.Error().Err(err).Msg("failed to hash password")
-		formData.Error = "An error occurred. Please try again."
-		r.renderRegistrationBlock(w, "register-form", formData)
+		fail(http.StatusInternalServerError, "failed to hash password", err)
 		return
 	}
 
@@ -442,7 +352,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		Dojo:                   formData.Dojo,
 		Rank:                   formData.Rank,
 		LastGradingDate:        lastGradingDate,
-		Role:                   formData.Role,
+		Role:                   "new", // hard-coded default; client-supplied role is ignored
 		ConsentDataStore:       formData.ConsentDataStore,
 		ConsentMarketingEmails: formData.ConsentMarketingEmails,
 		MedicalConditions:      formData.MedicalConditions,
@@ -450,33 +360,18 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		EmergencyContactNumber: formData.EmergencyContactNumber,
 	}
 
-	// hard coded defaults for now
-	user.Role = "user"
-
 	// --- Insert into database ---
 	if err := r.dbInsertUser(req.Context(), &user); err != nil {
-		// Check for duplicate email/whatsapp
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
-			formData.Error = "An account with this email or WhatsApp number already exists."
+			fail(http.StatusConflict, "An account with this email or WhatsApp number already exists.", err)
 		} else {
-			formData.Error = "Registration failed. Please try again later."
+			fail(http.StatusInternalServerError, "Registration failed. Please try again later.", err)
 		}
-		r.logger.Error().Caller().Err(err).Msg(formData.Error)
-		server.SendError(w, isJSON, http.StatusConflict, formData.Error, r, "register-form", formData)
 		return
 	}
 
 	r.logger.Info().Int64("user_id", user.ID).Msg("user registered successfully")
-
-	server.SendResponse(w, isJSON, http.StatusCreated, r, "register-success", formData)
-}
-
-// renderRegistrationBlock renders a specific template block for HTMX partial updates.
-func (r *registrar) renderRegistrationBlock(w http.ResponseWriter, blockName string, data RegistrationFormData) {
-	err := r.templates.ExecuteTemplate(w, blockName, data)
-	if err != nil {
-		http.Error(w, "Render Error", http.StatusInternalServerError)
-	}
+	server.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
 }
 
 func (r *registrar) getUserCount(w http.ResponseWriter, req *http.Request) {

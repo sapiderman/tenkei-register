@@ -10,6 +10,23 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+func TestSendSimpleResponse(t *testing.T) {
+	w := httptest.NewRecorder()
+	SendSimpleResponse(w, http.StatusTeapot, "hi there")
+
+	if w.Code != http.StatusTeapot {
+		t.Errorf("expected status %d, got %d", http.StatusTeapot, w.Code)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode JSON: %v", err)
+	}
+	if result["message"] != "hi there" {
+		t.Errorf("expected message 'hi there', got %q", result["message"])
+	}
+}
+
 func TestWriteJSON(t *testing.T) {
 	w := httptest.NewRecorder()
 	WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
