@@ -222,6 +222,86 @@ func TestHandleLogin_SessionCreateError(t *testing.T) {
 	}
 }
 
+// --- handleLogin audit (DB-backed) ---
+
+// TestHandleLogin_SuccessIsAudited verifies a successful login writes an
+// audit row bound to the real user id.
+func TestHandleLogin_SuccessIsAudited(t *testing.T) {
+	db := setupTestDB(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "audit-success@example.com", "+628500000010", string(hash))
+
+	a := &authenticator{
+		logger:   zerolog.Nop(),
+		validate: validator.New(),
+		db:       db,
+		verifier: &mockVerifier{userID: userID},
+		sessions: &mockSessionStore{},
+		cookies:  cookieConfig{Path: "/v1/auth", Secure: true, SameSite: http.SameSiteLaxMode},
+	}
+
+	body := `{"identifier":"audit-success@example.com","password":"testpassword"}`
+	req := httptest.NewRequest("POST", "/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	a.handleLogin(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var count int
+	err := db.NewRaw(`SELECT COUNT(*) FROM audit WHERE user_id = ? AND action = 'login'`, userID).Scan(t.Context(), &count)
+	if err != nil {
+		t.Fatalf("audit query: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 login audit row, got %d", count)
+	}
+}
+
+// TestHandleLogin_FailureIsAudited verifies a failed login writes an audit row.
+// Verify returns userID 0 for both "not found" and "wrong password" (anti-
+// enumeration), so the row carries a NULL user_id rather than a bogus 0.
+func TestHandleLogin_FailureIsAudited(t *testing.T) {
+	db := setupTestDB(t)
+	a := &authenticator{
+		logger:   zerolog.Nop(),
+		validate: validator.New(),
+		db:       db,
+		verifier: &mockVerifier{userID: 0, err: ErrInvalidCredentials},
+		sessions: &mockSessionStore{},
+		cookies:  cookieConfig{Path: "/v1/auth"},
+	}
+
+	body := `{"identifier":"test@example.com","password":"wrongpassword"}`
+	req := httptest.NewRequest("POST", "/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	// The audit table is append-only and shared across runs, so capture a
+	// baseline before the act and assert the delta afterward.
+	var before int
+	if err := db.NewRaw(`SELECT COUNT(*) FROM audit WHERE action = 'login_failed' AND user_id IS NULL`).Scan(t.Context(), &before); err != nil {
+		t.Fatalf("audit query (before): %v", err)
+	}
+
+	a.handleLogin(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+
+	var after int
+	if err := db.NewRaw(`SELECT COUNT(*) FROM audit WHERE action = 'login_failed' AND user_id IS NULL`).Scan(t.Context(), &after); err != nil {
+		t.Fatalf("audit query (after): %v", err)
+	}
+	if after-before != 1 {
+		t.Errorf("expected 1 new login_failed audit row with NULL user_id, got delta %d", after-before)
+	}
+}
+
 // --- handleGetProfile / handleUpdateProfile (DB-backed) ---
 
 // newDBTestAuthenticator builds an authenticator wired to the test database.

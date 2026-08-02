@@ -23,6 +23,7 @@ func (a *authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 	userID, requires2FA, err := a.verifier.Verify(r.Context(), req.Identifier, req.Password)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
+			a.audit(r.Context(), 0, "login_failed")
 			log.Warn().Str("identifier", mask(req.Identifier)).Msg("login failed")
 			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 			return
