@@ -2,7 +2,6 @@ package register
 
 import (
 	"context"
-	"html/template"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -18,9 +17,13 @@ type registrar struct {
 	logger           zerolog.Logger
 	validate         *validator.Validate
 	db               *bun.DB
-	templates        *template.Template
 	turnstileSecret  string
 	turnstileEnabled bool
+
+	// turnstileVerifyURL overrides the Cloudflare siteverify endpoint.
+	// Zero value falls back to the real URL in verifyTurnstileResponse;
+	// tests set this to a httptest.Server URL.
+	turnstileVerifyURL string
 }
 
 func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validate *validator.Validate, db *bun.DB, cfg *config.Config) {
@@ -29,7 +32,6 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 		logger:           logger,
 		validate:         validate,
 		db:               db,
-		templates:        template.Must(template.ParseFiles("internal/templates/register.html")),
 		turnstileSecret:  cfg.Server.TurnstileSecret,
 		turnstileEnabled: cfg.Server.TurnstileEnabled,
 	}

@@ -22,12 +22,23 @@ func NewBcryptVerifier(db *bun.DB) Verifier {
 	return &BcryptVerifier{db: db}
 }
 
+// dummyHash is a precomputed bcrypt hash used to equalize login response time
+// between the "user not found" and "wrong password" paths. Without it, the
+// not-found path skips bcrypt and returns in microseconds while the wrong-
+// password path costs ~50ms — a timing side channel that reveals whether an
+// identifier exists (user enumeration). The plaintext is a throwaway string;
+// only its cost profile matters.
+const dummyHash = "$2a$10$oSZtgXPD6IB81wO8lrIbdulYN7cIawVnkgvcgd0InAI/9WSY8XeH6"
+
 func (v *BcryptVerifier) Verify(ctx context.Context, identifier, password string) (int64, bool, error) {
 	user, err := v.findUserByIdentifier(ctx, identifier)
 	if err != nil {
 		// Only mask not-found as invalid credentials; propagate DB errors upstream
 		// so the handler can respond 500 for infrastructure failures.
 		if errors.Is(err, ErrInvalidCredentials) {
+			// Burn one bcrypt compare so this path takes the same time as the
+			// wrong-password path — response time must not reveal existence.
+			_ = bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(password))
 			return 0, false, ErrInvalidCredentials
 		}
 		return 0, false, err

@@ -125,6 +125,11 @@ func (a *authenticator) dbUpdateUserProfile(ctx context.Context, userID int64, r
 	return nil
 }
 
+// TODO(audit-cleanup): implement opportunistic audit self-cleanup when audit
+// approaches ~50k rows — reltuples gate → keep-newest-N DELETE → Warn log
+// (event=table_cleanup) + Audit{action:"cleanup"}. Deferred (YAGNI); full
+// design + trigger in AGENTS.md "Resource Constraints".
+//
 // audit records an action in the audit table.
 func (a *authenticator) audit(ctx context.Context, userID int64, action string) {
 	if a.db == nil {

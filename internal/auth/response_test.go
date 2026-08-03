@@ -50,15 +50,20 @@ func TestProfileFromUser_OmitsPasswordHash(t *testing.T) {
 
 func TestProfileFromUser_DateFormatting(t *testing.T) {
 	dob := time.Date(1990, 6, 15, 0, 0, 0, 0, time.UTC)
+	lgd := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
 	user := &types.User{
-		ID:          1,
-		DateOfBirth: dob,
-		JoinDate:    dob,
+		ID:              1,
+		DateOfBirth:     dob,
+		LastGradingDate: lgd,
+		JoinDate:        dob,
 	}
 
 	resp := profileFromUser(user)
 	if resp.DateOfBirth != "1990-06-15" {
 		t.Errorf("expected DateOfBirth '1990-06-15', got %s", resp.DateOfBirth)
+	}
+	if resp.LastGradingDate != "2024-06-01" {
+		t.Errorf("expected LastGradingDate '2024-06-01', got %s", resp.LastGradingDate)
 	}
 	if resp.JoinDate != "1990-06-15" {
 		t.Errorf("expected JoinDate '1990-06-15', got %s", resp.JoinDate)

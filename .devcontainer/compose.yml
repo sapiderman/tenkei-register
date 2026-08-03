@@ -15,7 +15,7 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     ports:
-      - 5439:5432
+      - 5451:5432
     volumes:
       - users:/var/lib/postgresql/data
     environment:

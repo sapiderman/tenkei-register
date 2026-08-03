@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"testing"
@@ -58,10 +59,13 @@ func insertTestUser(t *testing.T, db *bun.DB, email, whatsapp, passwordHash stri
 		t.Fatalf("insertTestUser fetch ID: %v", err)
 	}
 
+	// context.Background, not t.Context: the test context is already cancelled
+	// by the time t.Cleanup runs (Go 1.24+), which would silently no-op these
+	// DELETEs and leak rows across runs.
 	t.Cleanup(func() {
-		_, _ = db.NewRaw(`DELETE FROM audit WHERE user_id = ?`, id).Exec(t.Context())
-		_, _ = db.NewRaw(`DELETE FROM sessions WHERE user_id = ?`, id).Exec(t.Context())
-		_, _ = db.NewRaw(`DELETE FROM users WHERE id = ?`, id).Exec(t.Context())
+		_, _ = db.NewRaw(`DELETE FROM audit WHERE user_id = ?`, id).Exec(context.Background())
+		_, _ = db.NewRaw(`DELETE FROM sessions WHERE user_id = ?`, id).Exec(context.Background())
+		_, _ = db.NewRaw(`DELETE FROM users WHERE id = ?`, id).Exec(context.Background())
 	})
 
 	return id

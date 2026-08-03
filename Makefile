@@ -2,12 +2,12 @@
 
 CURRENT_PATH ?= $(shell pwd)
 IMAGE_NAME ?= tenkei-be-img
-DATABASE_URL ?= postgres://db_user:db_password@localhost:5437/tenkei?sslmode=disable
+DATABASE_URL ?= postgres://db_user:db_password@127.0.0.1:5451/tenkei?sslmode=disable
 
 .PHONY: all test clean build docker
 
 dev_deps:
-	docker compose -f .devcontainer/docker-compose.yml up -d
+	docker compose -f .devcontainer/compose.yml up -d
 
 migration_up:
 	migrate -path migrations -database "$(DATABASE_URL)" -verbose up

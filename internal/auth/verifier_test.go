@@ -118,3 +118,17 @@ func TestBcryptVerifier_DatabaseError(t *testing.T) {
 		t.Error("expected requires2FA=false, got true")
 	}
 }
+
+// TestDummyHash_Cost guards the anti-timing-enumeration constant. If dummyHash
+// were malformed, bcrypt.CompareHashAndPassword would fail instantly on the
+// not-found path and the timing leak would silently return. Cost must match
+// DefaultCost (10) so real user hashes and the dummy cost the same.
+func TestDummyHash_Cost(t *testing.T) {
+	cost, err := bcrypt.Cost([]byte(dummyHash))
+	if err != nil {
+		t.Fatalf("dummyHash is not a valid bcrypt hash: %v", err)
+	}
+	if cost != bcrypt.DefaultCost {
+		t.Errorf("dummyHash cost = %d, want %d (DefaultCost)", cost, bcrypt.DefaultCost)
+	}
+}

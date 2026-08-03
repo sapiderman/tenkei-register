@@ -146,3 +146,6 @@ graphify-out
 config.yaml
 .env
 .env.local
+
+# agent specific
+.pi-subagents
