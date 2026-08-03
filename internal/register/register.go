@@ -363,7 +363,11 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	// --- Insert into database ---
 	if err := r.dbInsertUser(req.Context(), &user); err != nil {
 		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
-			fail(http.StatusConflict, "An account with this email or WhatsApp number already exists.", err)
+			// Known duplicate: log a PII-free line and return 409. The raw error is
+			// not logged because Postgres unique-violation messages can carry the
+			// offending value / constraint name (AGENTS.md AI Rule 3).
+			r.logger.Warn().Caller().Msg("registration rejected: duplicate email or whatsapp")
+			server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email or WhatsApp number already exists."})
 		} else {
 			fail(http.StatusInternalServerError, "Registration failed. Please try again later.", err)
 		}

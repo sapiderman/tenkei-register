@@ -19,10 +19,10 @@
             "mode": "auto",
             "program": "${workspaceRoot}/main.go",
             "env": {
-                "SERVER_TURNSTILE_ENABLED": "false",
-                "SERVER_TURNSTILE_SECRET_KEY": "1x00000000000000000000AA",
-                "SERVER_X_CF_BYPASS": "123",
-                "DATABASE_URL": "postgres://tenkei:tenkei@localhost:5451/tenkei?sslmode=disable"
+                "TENKEI_SERVER_TURNSTILE_ENABLED": "false",
+                "TENKEI_SERVER_TURNSTILE_SECRET_KEY": "1x00000000000000000000AA",
+                "TENKEI_SERVER_X_CF_BYPASS": "123",
+                "TENKEI_DATABASE_CONNECTION_STRING": "postgres://tenkei:tenkei@localhost:5451/tenkei?sslmode=disable"
             },
             "args": [""]
         },

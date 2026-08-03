@@ -22,12 +22,12 @@ The Dev Container mounts the workspace at `/workspace` and runs `go mod download
 - App container: Microsoft Go devcontainer image (`go:1-ubuntu-24.04`)
 - Database: Postgres 18 service defined in compose
 - Forwarded ports:
-  - 5432 → Postgres
-  - 3000 → App server
+  - 5451:5432 → Postgres
+  - 3001:3000 → App server
 
 ## Configuration
 
-- Compose environment in [.devcontainer/docker-compose.yml](.devcontainer/docker-compose.yml):
+- Compose environment in [.devcontainer/compose.yml](.devcontainer/compose.yml):
   - `POSTGRES_USER`: `db_user`
   - `POSTGRES_PASSWORD`: `db_password`
   - `POSTGRES_DB`: `tenkei`
@@ -41,14 +41,14 @@ Go toolchain: [go.mod](go.mod) declares Go `1.26.4`. The devcontainer image trac
 Start/refresh the database:
 
 ```bash
-docker compose -f .devcontainer/docker-compose.yml pull db
-docker compose -f .devcontainer/docker-compose.yml up -d db
+docker compose -f .devcontainer/compose.yml pull db
+docker compose -f .devcontainer/compose.yml up -d db
 ```
 
 Stop the database:
 
 ```bash
-docker compose -f .devcontainer/docker-compose.yml down
+docker compose -f .devcontainer/compose.yml down
 ```
 
 Run the application inside the Dev Container:
@@ -65,7 +65,7 @@ Note: Ensure your server listens (e.g., `http.ListenAndServe(":3000", router)`),
 Connect to Postgres from the host (Linux/macOS):
 
 ```bash
-psql "postgres://db_user:db_password@localhost:5437/tenkei?sslmode=disable"
+psql "postgres://db_user:db_password@localhost:5451/tenkei?sslmode=disable"
 ```
 
 Or from the container:
