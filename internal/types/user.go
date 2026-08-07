@@ -16,8 +16,8 @@ type User struct {
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp"`
 
 	Name            string    `bun:"name,notnull"`
-	Email           string    `bun:"email"`
-	WhatsApp        string    `bun:"whatsapp_number,notnull"`
+	Email           string    `bun:"email,notnull"`
+	WhatsApp        string    `bun:"whatsapp_number"`
 	PasswordHash    string    `bun:"password_hash,notnull"`
 	JoinDate        time.Time `bun:"join_date,notnull,default:current_timestamp"`
 	Dojo            string    `bun:"dojo"`

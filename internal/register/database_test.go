@@ -97,7 +97,7 @@ func TestDbInsertUser_DuplicateEmail(t *testing.T) {
 	}
 }
 
-func TestDbInsertUser_DuplicateWhatsApp(t *testing.T) {
+func TestDbInsertUser_DuplicateWhatsApp_Allowed(t *testing.T) {
 	db := setupTestDB(t)
 	reg := &registrar{db: db}
 
@@ -114,8 +114,9 @@ func TestDbInsertUser_DuplicateWhatsApp(t *testing.T) {
 	if err := reg.dbInsertUser(t.Context(), user1); err != nil {
 		t.Fatalf("first insert failed: %v", err)
 	}
-	if err := reg.dbInsertUser(t.Context(), user2); err == nil {
-		t.Fatal("expected duplicate whatsapp error, got nil")
+	// WhatsApp uniqueness was dropped: two members may share a number.
+	if err := reg.dbInsertUser(t.Context(), user2); err != nil {
+		t.Errorf("expected shared WhatsApp to be allowed, got %v", err)
 	}
 }
 

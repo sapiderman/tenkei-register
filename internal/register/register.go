@@ -102,7 +102,7 @@ func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) err
 	if verifyURL == "" {
 		verifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
 	}
-	resp, err := http.PostForm(verifyURL, form)
+	resp, err := http.PostForm(verifyURL, form) // #nosec G107,G704 — verifyURL is config-derived (TENKEI_SERVER_TURNSTILE_*), never request-controlled
 	if err != nil {
 		r.logger.Error().
 			Err(err).
@@ -258,22 +258,20 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Required field: WhatsApp
-	if formData.WhatsApp == "" {
-		badRequest("WhatsApp number is required.")
+	// Required field: Email (sole login identifier)
+	if formData.Email == "" {
+		badRequest("Email is required.")
 		return
 	}
-	if len(formData.WhatsApp) > 20 {
-		badRequest("WhatsApp number is too long.")
+	if err := r.validate.Var(formData.Email, "email"); err != nil {
+		badRequest("Invalid email address.")
 		return
 	}
 
-	// Validate email format (if provided)
-	if formData.Email != "" {
-		if err := r.validate.Var(formData.Email, "email"); err != nil {
-			badRequest("Invalid email address.")
-			return
-		}
+	// Optional field: WhatsApp (no longer a login identifier, no longer unique)
+	if formData.WhatsApp != "" && len(formData.WhatsApp) > 20 {
+		badRequest("WhatsApp number is too long.")
+		return
 	}
 
 	// Required field: Password
@@ -366,8 +364,8 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 			// Known duplicate: log a PII-free line and return 409. The raw error is
 			// not logged because Postgres unique-violation messages can carry the
 			// offending value / constraint name (AGENTS.md AI Rule 3).
-			r.logger.Warn().Caller().Msg("registration rejected: duplicate email or whatsapp")
-			server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email or WhatsApp number already exists."})
+			r.logger.Warn().Caller().Msg("registration rejected: duplicate email")
+			server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email already exists."})
 		} else {
 			fail(http.StatusInternalServerError, "Registration failed. Please try again later.", err)
 		}

@@ -176,7 +176,7 @@ func TestHandleSubmission_Validation(t *testing.T) {
 		// Required-field / length validations.
 		{name: "MissingName", mutate: func(m map[string]any) { m["name"] = "" }, wantErr: "Name is required"},
 		{name: "NameTooLong", mutate: func(m map[string]any) { m["name"] = strings.Repeat("a", 256) }, wantErr: "Name is too long"},
-		{name: "MissingWhatsApp", mutate: func(m map[string]any) { m["whatsapp"] = "" }, wantErr: "WhatsApp number is required"},
+		{name: "MissingEmail", mutate: func(m map[string]any) { m["email"] = "" }, wantErr: "Email is required"},
 		{name: "WhatsAppTooLong", mutate: func(m map[string]any) { m["whatsapp"] = "+" + strings.Repeat("1", 20) }, wantErr: "WhatsApp number is too long"},
 		{name: "InvalidEmail", mutate: func(m map[string]any) { m["email"] = "not-an-email" }, wantErr: "Invalid email"},
 		{name: "MissingPassword", mutate: func(m map[string]any) { m["password"] = ""; m["password_confirm"] = "" }, wantErr: "Password is required"},
@@ -192,8 +192,8 @@ func TestHandleSubmission_Validation(t *testing.T) {
 		{name: "InvalidDateOfBirth", mutate: func(m map[string]any) { m["date_of_birth"] = "not-a-date" }, wantErr: "Date of birth"},
 		{name: "InvalidLastGradingDate", mutate: func(m map[string]any) { m["date_of_birth"] = "1990-01-01"; m["last_grading_date"] = "2024/06/01" }, wantErr: "Last grading date"},
 
-		// Branch ordering: empty email must skip email validation.
-		{name: "EmptyEmailSkipsEmailValidation", mutate: func(m map[string]any) { m["email"] = ""; m["consent_datastore"] = false }, wantErr: "consent", notErr: "email"},
+		// Branch ordering: empty email hits the Email-required check BEFORE consent.
+		{name: "EmptyEmailRejectedBeforeConsent", mutate: func(m map[string]any) { m["email"] = ""; m["consent_datastore"] = false }, wantErr: "Email is required"},
 	}
 
 	for _, tc := range cases {
@@ -491,5 +491,23 @@ func TestHandleSubmission_RoleForcedToNew(t *testing.T) {
 	}
 	if role != "new" {
 		t.Errorf("role: want %q (client role must be ignored), got %q", "new", role)
+	}
+}
+
+// TestHandleSubmission_SuccessWithoutWhatsApp verifies WhatsApp is optional at
+// registration (PRD story 19): a payload omitting whatsapp still registers.
+func TestHandleSubmission_SuccessWithoutWhatsApp(t *testing.T) {
+	reg := newTestRegistrarDB(t)
+	db := reg.db
+	const email = "no-wa@example.com"
+	wipeUsers(t, db, email)
+
+	m := validPayloadMap()
+	m["email"] = email
+	delete(m, "whatsapp")
+
+	w := doJSONRequest(t, reg, marshalJSON(m))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 }

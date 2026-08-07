@@ -24,7 +24,7 @@ func (a *authenticator) dbGetUserByID(ctx context.Context, userID int64) (*types
 // Only non-zero/non-nil fields are updated. Immutable fields (id, role,
 // password_hash, created_at) are structurally absent from UpdateProfileRequest.
 func (a *authenticator) dbUpdateUserProfile(ctx context.Context, userID int64, req *UpdateProfileRequest) error {
-	// Fetch current user to check for conflicts on email/WhatsApp
+	// Fetch current user to check for email conflicts (WhatsApp is no longer unique)
 	var user types.User
 	err := a.db.NewSelect().
 		Model(&user).
@@ -56,20 +56,7 @@ func (a *authenticator) dbUpdateUserProfile(ctx context.Context, userID int64, r
 		user.Email = req.Email
 	}
 	if req.WhatsApp != "" {
-		// Check for duplicate WhatsApp
-		if req.WhatsApp != user.WhatsApp {
-			var count int
-			count, err = a.db.NewSelect().
-				Model((*types.User)(nil)).
-				Where("whatsapp_number = ? AND id != ?", req.WhatsApp, userID).
-				Count(ctx)
-			if err != nil {
-				return err
-			}
-			if count > 0 {
-				return ErrUpdateConflict
-			}
-		}
+		// WhatsApp is not unique and not a login identifier — no conflict check.
 		user.WhatsApp = req.WhatsApp
 	}
 	if req.Dojo != "" {

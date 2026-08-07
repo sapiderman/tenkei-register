@@ -85,7 +85,7 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 
 	if err := a.dbUpdateUserProfile(r.Context(), userID, &req); err != nil {
 		if errors.Is(err, ErrUpdateConflict) {
-			server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email or WhatsApp number already exists."})
+			server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email already exists."})
 			return
 		}
 		if errors.Is(err, ErrInvalidRank) {
