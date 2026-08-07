@@ -44,7 +44,7 @@ func insertTestUser(t *testing.T, db *bun.DB, email, whatsapp, passwordHash stri
 	_, err := db.NewRaw(
 		`INSERT INTO users (name, email, whatsapp_number, password_hash, role, consent_datastore)
 		 VALUES (?, ?, ?, ?, 'user', true)
-		 ON CONFLICT (whatsapp_number) DO UPDATE SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash
+		 ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash
 		 RETURNING id`,
 		"Test User", email, whatsapp, passwordHash,
 	).Exec(t.Context())

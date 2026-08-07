@@ -108,7 +108,7 @@ func TestDBUpdateUserProfile_DuplicateEmail(t *testing.T) {
 	}
 }
 
-func TestDBUpdateUserProfile_DuplicateWhatsApp(t *testing.T) {
+func TestDBUpdateUserProfile_DuplicateWhatsApp_NoConflict(t *testing.T) {
 	db := setupTestDB(t)
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
@@ -119,11 +119,11 @@ func TestDBUpdateUserProfile_DuplicateWhatsApp(t *testing.T) {
 
 	a := &authenticator{logger: zerolog.Nop(), db: db}
 
-	// Try to update user2's WhatsApp to user1's
+	// WhatsApp is no longer unique: sharing a number must NOT conflict.
 	req := &UpdateProfileRequest{WhatsApp: "+628200000001"}
 	err := a.dbUpdateUserProfile(t.Context(), user2ID, req)
-	if err != ErrUpdateConflict {
-		t.Errorf("expected ErrUpdateConflict for duplicate WhatsApp, got %v", err)
+	if err != nil {
+		t.Errorf("expected no conflict for duplicate WhatsApp, got %v", err)
 	}
 }
 

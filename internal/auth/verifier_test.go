@@ -73,22 +73,24 @@ func TestBcryptVerifier_NonexistentUser(t *testing.T) {
 	}
 }
 
-func TestBcryptVerifier_LoginByWhatsApp(t *testing.T) {
+func TestBcryptVerifier_LoginByWhatsApp_Rejected(t *testing.T) {
 	db := setupTestDB(t)
 
 	hash, err := bcrypt.GenerateFromPassword([]byte("correctpassword"), bcrypt.DefaultCost)
 	if err != nil {
 		t.Fatalf("bcrypt: %v", err)
 	}
-	userID := insertTestUser(t, db, "verifier-wa@example.com", "+62833333333", string(hash))
+	_ = insertTestUser(t, db, "verifier-wa@example.com", "+62833333333", string(hash))
 
 	v := NewBcryptVerifier(db)
+	// WhatsApp is no longer a login identifier: a registered number + correct
+	// password must NOT resolve (PRD story 24 — never resolves via WhatsApp).
 	gotID, requires2FA, err := v.Verify(t.Context(), "+62833333333", "correctpassword")
-	if err != nil {
-		t.Fatalf("Verify() error: %v", err)
+	if err != ErrInvalidCredentials {
+		t.Errorf("expected ErrInvalidCredentials for WhatsApp login attempt, got %v", err)
 	}
-	if gotID != userID {
-		t.Errorf("expected userID %d, got %d", userID, gotID)
+	if gotID != 0 {
+		t.Errorf("expected userID 0, got %d", gotID)
 	}
 	if requires2FA {
 		t.Error("expected requires2FA=false, got true")

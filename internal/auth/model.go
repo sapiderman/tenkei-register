@@ -20,7 +20,7 @@ type Session struct {
 
 // LoginRequest is the inbound payload for POST /v1/auth/login.
 type LoginRequest struct {
-	Identifier string `json:"identifier" validate:"required"` // email or WhatsApp
+	Identifier string `json:"identifier" validate:"required"` // email
 	Password   string `json:"password" validate:"required"`   // #nosec G117 — never logged
 }
 
