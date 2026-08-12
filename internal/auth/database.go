@@ -4,13 +4,15 @@ import (
 	"context"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/internal/types"
+	"github.com/uptrace/bun"
 )
 
-// dbGetUserByID fetches a user by primary key.
-func (a *authenticator) dbGetUserByID(ctx context.Context, userID int64) (*types.User, error) {
+// GetUserByID fetches a user by primary key. Shared by self-profile and admin.
+func GetUserByID(ctx context.Context, db *bun.DB, userID int64) (*types.User, error) {
 	var user types.User
-	err := a.db.NewSelect().
+	err := db.NewSelect().
 		Model(&user).
 		Where("id = ?", userID).
 		Scan(ctx)
@@ -20,38 +22,30 @@ func (a *authenticator) dbGetUserByID(ctx context.Context, userID int64) (*types
 	return &user, nil
 }
 
-// dbUpdateUserProfile applies partial updates from UpdateProfileRequest.
-// Only non-zero/non-nil fields are updated. Immutable fields (id, role,
-// password_hash, created_at) are structurally absent from UpdateProfileRequest.
-func (a *authenticator) dbUpdateUserProfile(ctx context.Context, userID int64, req *UpdateProfileRequest) error {
-	// Fetch current user to check for email conflicts (WhatsApp is no longer unique)
-	var user types.User
-	err := a.db.NewSelect().
-		Model(&user).
-		Where("id = ?", userID).
-		Scan(ctx)
-	if err != nil {
-		return ErrUserNotFound
-	}
+// ApplyProfileUpdate applies the non-zero fields of req to an already-loaded
+// user and persists the change via db (a *bun.DB or a *bun.Tx), enforcing
+// email uniqueness. The caller owns loading the user — self-profile loads by
+// id; admin loads with SELECT ... FOR UPDATE inside a scoped transaction, so
+// the scope check and the write are one atomic step (no check-then-act gap).
+// Immutable fields (id, role, password_hash, created_at) are structurally
+// absent from UpdateProfileRequest, so role can never be set here.
+func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *UpdateProfileRequest) error {
+	userID := user.ID
 
-	// Apply partial updates
 	if req.Name != "" {
 		user.Name = req.Name
 	}
-	if req.Email != "" {
-		// Check for duplicate email
-		if req.Email != user.Email {
-			var count int
-			count, err = a.db.NewSelect().
-				Model((*types.User)(nil)).
-				Where("email = ? AND id != ?", req.Email, userID).
-				Count(ctx)
-			if err != nil {
-				return err
-			}
-			if count > 0 {
-				return ErrUpdateConflict
-			}
+	if req.Email != "" && req.Email != user.Email {
+		// WhatsApp is no longer unique; only email is checked for conflicts.
+		count, err := db.NewSelect().
+			Model((*types.User)(nil)).
+			Where("email = ? AND id != ?", req.Email, userID).
+			Count(ctx)
+		if err != nil {
+			return err
+		}
+		if count > 0 {
+			return ErrUpdateConflict
 		}
 		user.Email = req.Email
 	}
@@ -98,8 +92,8 @@ func (a *authenticator) dbUpdateUserProfile(ctx context.Context, userID int64, r
 		user.ConsentMarketingEmails = *req.ConsentMarketing
 	}
 
-	_, err = a.db.NewUpdate().
-		Model(&user).
+	_, err := db.NewUpdate().
+		Model(user).
 		Where("id = ?", userID).
 		Exec(ctx)
 	if err != nil {
@@ -108,24 +102,37 @@ func (a *authenticator) dbUpdateUserProfile(ctx context.Context, userID int64, r
 		}
 		return err
 	}
-
 	return nil
+}
+
+// UpdateUserProfile loads a user by id and applies a partial update. This is
+// the self-profile path (no scope guard, no row lock).
+func UpdateUserProfile(ctx context.Context, db *bun.DB, userID int64, req *UpdateProfileRequest) error {
+	var user types.User
+	err := db.NewSelect().
+		Model(&user).
+		Where("id = ?", userID).
+		Scan(ctx)
+	if err != nil {
+		return ErrUserNotFound
+	}
+	return ApplyProfileUpdate(ctx, db, &user, req)
 }
 
 // TODO(audit-cleanup): implement opportunistic audit self-cleanup when audit
 // approaches ~50k rows — reltuples gate → keep-newest-N DELETE → Warn log
 // (event=table_cleanup) + Audit{action:"cleanup"}. Deferred (YAGNI); full
 // design + trigger in AGENTS.md "Resource Constraints".
-//
-// audit records an action in the audit table.
-func (a *authenticator) audit(ctx context.Context, userID int64, action string) {
-	if a.db == nil {
+
+// Audit records an action in the audit table. Shared by auth and admin.
+func Audit(ctx context.Context, db *bun.DB, logger zerolog.Logger, userID int64, action string) {
+	if db == nil {
 		return
 	}
-	_, err := a.db.NewInsert().
+	_, err := db.NewInsert().
 		Model(&types.Audit{UserID: userID, Action: action}).
 		Exec(ctx)
 	if err != nil {
-		a.logger.Error().Err(err).Int64("user_id", userID).Str("action", action).Msg("failed to write audit record")
+		logger.Error().Err(err).Int64("user_id", userID).Str("action", action).Msg("failed to write audit record")
 	}
 }

@@ -22,11 +22,48 @@ type authenticator struct {
 	cookies  cookieConfig
 }
 
+// Middleware exposes the session and role middleware bound to an
+// authenticator so sibling packages (e.g. internal/admin) can mount the
+// same authentication/authorization chain without duplicating it.
+type Middleware struct {
+	a *authenticator
+}
+
+// NewMiddleware builds a Middleware from a session store. It is the single
+// constructor for the session/role handle, used by both production wiring
+// (internal/http.go) and tests; `secure` controls the cookie posture used
+// when clearing a failed session cookie (matches NewDBSessionStore's prod
+// authenticator when wired with cfg.Server.Mode == "production").
+func NewMiddleware(sessions SessionStore, secure bool) *Middleware {
+	return &Middleware{a: &authenticator{sessions: sessions, cookies: cookieConfigFor(secure)}}
+}
+
+// SessionRequired is the authentication middleware (see sessionRequired).
+func (m *Middleware) SessionRequired(next http.Handler) http.Handler {
+	return m.a.sessionRequired(next)
+}
+
+// RoleRequired returns the authorization middleware admitting level >= min.
+func (m *Middleware) RoleRequired(min int) func(http.Handler) http.Handler {
+	return m.a.roleRequired(min)
+}
+
 type cookieConfig struct {
 	Domain   string
 	Secure   bool
 	SameSite http.SameSite
 	Path     string
+}
+
+// cookieConfigFor is the single source of truth for the session cookie
+// posture; only Secure varies (production vs. not). Path and SameSite are
+// constant across the app.
+func cookieConfigFor(secure bool) cookieConfig {
+	return cookieConfig{
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/v1/auth",
+	}
 }
 
 // NewRouter mounts the auth routes on the given chi.Router.
@@ -37,11 +74,7 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 		db:       db,
 		verifier: NewBcryptVerifier(db),
 		sessions: NewDBSessionStore(db),
-		cookies: cookieConfig{
-			Secure:   cfg.Server.Mode == "production",
-			SameSite: http.SameSiteLaxMode,
-			Path:     "/v1/auth",
-		},
+		cookies:  cookieConfigFor(cfg.Server.Mode == "production"),
 	}
 
 	r.Route("/v1/auth", func(r chi.Router) {

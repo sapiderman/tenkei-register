@@ -379,7 +379,7 @@ func TestHandleUpdateProfile_Success(t *testing.T) {
 	}
 
 	// Verify the update landed in the DB.
-	user, err := a.dbGetUserByID(t.Context(), userID)
+	user, err := GetUserByID(t.Context(), a.db, userID)
 	if err != nil {
 		t.Fatalf("dbGetUserByID: %v", err)
 	}

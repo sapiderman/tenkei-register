@@ -30,8 +30,9 @@
 ├── internal/
 │   ├── server.go            # StartServer, ServeWith (graceful shutdown)
 │   ├── http.go              # NewHTTPHandler, middleware wiring
-│   ├── auth/                # Login, session, profile
+│   ├── auth/                # Login, session, profile, shared session/role middleware
 │   ├── register/           # Registration (JSON)
+│   ├── admin/              # Member administration (list/view/edit/verify/role)
 │   ├── types/              # Shared bun models: User, Audit, Ranks, parse helpers
 │   ├── database/           # DB connection + query logging hook
 │   ├── middleware/          # XCFBypass, AccessLog
@@ -53,7 +54,35 @@
 | PUT | `/v1/auth/profile` | XCFBypass + session cookie | Update profile |
 | POST | `/v1/auth/logout` | XCFBypass + session cookie | Invalidate session |
 | POST | `/v1/auth/logout-all` | XCFBypass + session cookie | Revoke all sessions (compromise response) |
+| GET | `/v1/admin/users` | XCFBypass + session + role>=2 | List members (viewer-scoped, paginated, summary only) |
+| GET | `/v1/admin/users/:id` | XCFBypass + session + role>=2 | View a member's full profile (admin: new/user only; superuser: anyone) |
+| PUT | `/v1/admin/users/:id` | XCFBypass + session + role>=2 | Edit a member's profile (same whitelist as self-profile; role absent) |
+| POST | `/v1/admin/users/:id/verify` | XCFBypass + session + role>=2 | Verify a member (new -> user); no session invalidation |
+| PUT | `/v1/admin/users/:id/role` | XCFBypass + session + role>=3 | Set a member's role (superuser only; atomic last-superuser guard) |
 | GET | `/health` | None (before XCFBypass) | Liveness probe |
+
+## Authorization Model
+
+Every account has one role, stored on `users.role` (NOT NULL, CHECK-constrained to four values) and resolved per request via a `sessions ⋈ users` join in session validation — so a role change takes effect on the *next* request, with no session reissue.
+
+| Role | Level | Can do |
+| ---- | ----- | ------ |
+| `new` | 0 | Self-service profile only (soft gate; same as today) |
+| `user` | 1 | Self-service profile |
+| `admin` | 2 | + list/view/edit/verify members (`new`/`user` scope) |
+| `superuser` | 3 | + full scope over all members + role management |
+
+Authorization is one middleware, `roleRequired(minLevel)`, with **`>=`** semantics (no `==` gate): it admits at-or-above and returns `403` below. `sessionRequired` runs first and supplies the `401` for no/invalid session. Self-profile endpoints (`/v1/auth/profile`) carry **no** minimum-level requirement — a `new` member self-serves exactly as before. Single source of truth: `internal/types/roles.go`.
+
+### First-superuser bootstrap
+
+There is **no endpoint, flag, or migration** that creates the first superuser — by design, so the privilege can only ever come from an operator with database access. To seed it, run this against the production database:
+
+```sql
+UPDATE users SET role = 'superuser' WHERE email = 'you@dojo.example';
+```
+
+That account's next request (the role is read live from the user row) gains superuser capabilities. The last-superuser guard (Phase B5) then prevents demoting the final superuser to zero.
 
 ## Middleware Stack (in order)
 
@@ -62,7 +91,8 @@ Applied in `internal/http.go`. Order matters.
 1. `RequestID` → 2. `Recoverer` → 3. `AccessLog` → 4. `Heartbeat("/health")` → 5. `XCFBypass` → 6. `Timeout(60s)`
 
 - `/health` bypasses `XCFBypass` (check #4 before #5).
-- Auth endpoints additionally use `sessionRequired` middleware (inside `auth.NewRouter`).
+- **Auth endpoints additionally use `sessionRequired` middleware (inside `auth.NewRouter`).
+- **Admin endpoints** (`/v1/admin/*`) use `sessionRequired` + `roleRequired(>=2)`; the role-management route additionally stacks `roleRequired(>=3)`. Role is resolved per request via the `sessions ⋈ users` join in `SessionStore.Validate`.
 - Turnstile is **not** middleware — it's verified inline in the register handler (`verifyTurnstileResponse`), gated by `TENKEI_SERVER_TURNSTILE_ENABLED`.
 
 ## Key Architecture Decisions
@@ -147,8 +177,9 @@ Known baseline: `gosec` `G117` on `password` fields in JSON structs. Acceptable 
 ## Interface Seams (for extension)
 
 - **`Verifier`** — Today `BcryptVerifier`; decorator pattern for 2FA (`requires2FA` seam ready)
-- **`SessionStore`** — Today `DBSessionStore`; swap for Redis when scaling
+- **`SessionStore`** — Today `DBSessionStore`; swap for Redis when scaling. `Validate` returns `(userID, role)` via a sessions⋈users join.
 - **`PasswordResetter`** — Defined in `auth/interfaces.go`, not yet implemented. Seam for forgot-password flow.
+- **`auth.Middleware`** — Shared session + role middleware handle, reused by `/v1/auth` and `/v1/admin` so authn/authz is defined once.
 
 ---
 

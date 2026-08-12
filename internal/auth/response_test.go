@@ -26,7 +26,7 @@ func TestProfileFromUser_OmitsPasswordHash(t *testing.T) {
 		ConsentMarketingEmails: false,
 	}
 
-	resp := profileFromUser(user)
+	resp := ProfileFromUser(user)
 
 	// Marshal to JSON and verify password_hash is absent
 	data, err := json.Marshal(resp)
@@ -58,7 +58,7 @@ func TestProfileFromUser_DateFormatting(t *testing.T) {
 		JoinDate:        dob,
 	}
 
-	resp := profileFromUser(user)
+	resp := ProfileFromUser(user)
 	if resp.DateOfBirth != "1990-06-15" {
 		t.Errorf("expected DateOfBirth '1990-06-15', got %s", resp.DateOfBirth)
 	}
@@ -76,7 +76,7 @@ func TestProfileFromUser_ZeroDateOmitted(t *testing.T) {
 		// DateOfBirth and LastGradingDate are zero values
 	}
 
-	resp := profileFromUser(user)
+	resp := ProfileFromUser(user)
 	if resp.DateOfBirth != "" {
 		t.Errorf("expected empty DateOfBirth for zero time, got %s", resp.DateOfBirth)
 	}
