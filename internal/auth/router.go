@@ -6,10 +6,10 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/httprate"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/config"
+	mymiddleware "github.com/sapiderman/tenkei-register/internal/middleware"
 	"github.com/uptrace/bun"
 )
 
@@ -56,13 +56,15 @@ type cookieConfig struct {
 }
 
 // cookieConfigFor is the single source of truth for the session cookie
-// posture; only Secure varies (production vs. not). Path and SameSite are
-// constant across the app.
+// posture; only Secure varies (production vs. not). Path is "/" — the
+// cookie must reach both /v1/auth and /v1/admin (a /v1/auth-scoped cookie
+// is never sent to admin routes, locking admins out with 401s). SameSite
+// is constant across the app.
 func cookieConfigFor(secure bool) cookieConfig {
 	return cookieConfig{
 		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
-		Path:     "/v1/auth",
+		Path:     "/",
 	}
 }
 
@@ -79,7 +81,7 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 
 	r.Route("/v1/auth", func(r chi.Router) {
 		// Public: login (rate-limited to prevent brute force)
-		r.With(httprate.LimitByIP(10, 1*time.Minute)).Post("/login", a.handleLogin)
+		r.With(mymiddleware.RateLimit(10, 1*time.Minute)).Post("/login", a.handleLogin)
 
 		// Authenticated endpoints: require valid session
 		r.Group(func(r chi.Router) {

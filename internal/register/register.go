@@ -6,11 +6,11 @@ import (
 	"errors"
 	"html"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
 
+	"github.com/sapiderman/tenkei-register/internal/middleware"
 	"github.com/sapiderman/tenkei-register/internal/server"
 	"github.com/sapiderman/tenkei-register/internal/types"
 	"golang.org/x/crypto/bcrypt"
@@ -78,18 +78,9 @@ func (r *registrar) verifyTurnstileResponse(req *http.Request, token string) err
 	form.Add("secret", r.turnstileSecret)
 	form.Add("response", token)
 
-	// Add trusted client IP for Turnstile verification.
-	// Prefer CF-Connecting-IP when behind Cloudflare; otherwise fallback to RemoteAddr.
-	var remoteIP string
-	if cfIP := strings.TrimSpace(req.Header.Get("CF-Connecting-IP")); cfIP != "" {
-		remoteIP = cfIP
-	} else {
-		if host, _, err := net.SplitHostPort(req.RemoteAddr); err == nil {
-			remoteIP = host
-		} else {
-			remoteIP = req.RemoteAddr
-		}
-	}
+	// Add trusted client IP for Turnstile verification: CF-Connecting-IP
+	// when behind Cloudflare, else RemoteAddr (see middleware.ClientIP).
+	remoteIP := middleware.ClientIP(req)
 	if remoteIP != "" {
 		form.Add("remoteip", remoteIP)
 	}

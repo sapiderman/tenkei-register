@@ -99,7 +99,7 @@ Applied in `internal/http.go`. Order matters.
 
 - **JSON-only endpoints**: All routes accept and return JSON. Input strings are HTML-escaped (`html.EscapeString`) before storage to prevent XSS.
 - **Anti-enumeration**: Login returns identical `401 "invalid credentials"` for wrong password and nonexistent user.
-- **Session cookies**: `HttpOnly`, `Secure` in production, `SameSite=Lax`, scoped to `/v1/auth`.
+- **Session cookies**: `HttpOnly`, `Secure` in production, `SameSite=Lax`, `Path=/` (must reach both `/v1/auth` and `/v1/admin`).
 - **PII masking**: Login failures log `mask(identifier)` only — never raw email/WhatsApp.
 - **Connection pool**: 25 max open, 10 idle, 5-minute lifetime.
 - **Server timeouts**: Read/Write 10s, Idle 120s, ReadHeaderTimeout from config (default 5s).

@@ -36,7 +36,7 @@ func (m *mockSessionStore) InvalidateAll(ctx context.Context, userID int64) erro
 func TestSessionRequired_MissingCookie(t *testing.T) {
 	a := &authenticator{
 		sessions: &mockSessionStore{},
-		cookies:  cookieConfig{Path: "/v1/auth"},
+		cookies:  cookieConfig{Path: "/"},
 	}
 
 	req := httptest.NewRequest("GET", "/v1/auth/profile", nil)
@@ -60,7 +60,7 @@ func TestSessionRequired_MissingCookie(t *testing.T) {
 func TestSessionRequired_InvalidSession(t *testing.T) {
 	a := &authenticator{
 		sessions: &mockSessionStore{validateErr: ErrSessionNotFound},
-		cookies:  cookieConfig{Path: "/v1/auth"},
+		cookies:  cookieConfig{Path: "/"},
 	}
 
 	req := httptest.NewRequest("GET", "/v1/auth/profile", nil)
@@ -85,7 +85,7 @@ func TestSessionRequired_InvalidSession(t *testing.T) {
 func TestSessionRequired_ValidSession(t *testing.T) {
 	a := &authenticator{
 		sessions: &mockSessionStore{validateResult: 42, validateRole: "user"},
-		cookies:  cookieConfig{Path: "/v1/auth"},
+		cookies:  cookieConfig{Path: "/"},
 	}
 
 	req := httptest.NewRequest("GET", "/v1/auth/profile", nil)
@@ -186,7 +186,7 @@ func findCookie(t *testing.T, w *httptest.ResponseRecorder, name string) *http.C
 }
 
 func TestSetSessionCookie(t *testing.T) {
-	a := &authenticator{cookies: cookieConfig{Path: "/v1/auth", Secure: true, SameSite: http.SameSiteLaxMode}}
+	a := &authenticator{cookies: cookieConfig{Path: "/", Secure: true, SameSite: http.SameSiteLaxMode}}
 
 	w := httptest.NewRecorder()
 	a.setSessionCookie(w, "sid-123")
@@ -207,8 +207,8 @@ func TestSetSessionCookie(t *testing.T) {
 	if c.SameSite != http.SameSiteLaxMode {
 		t.Errorf("SameSite = %v, want %v", c.SameSite, http.SameSiteLaxMode)
 	}
-	if c.Path != "/v1/auth" {
-		t.Errorf("Path = %q, want %q", c.Path, "/v1/auth")
+	if c.Path != "/" {
+		t.Errorf("Path = %q, want %q", c.Path, "/")
 	}
 	if c.MaxAge != int(sessionMaxAge.Seconds()) {
 		t.Errorf("MaxAge = %d, want %d", c.MaxAge, int(sessionMaxAge.Seconds()))
@@ -216,7 +216,7 @@ func TestSetSessionCookie(t *testing.T) {
 }
 
 func TestSetSessionCookie_InsecureMode(t *testing.T) {
-	a := &authenticator{cookies: cookieConfig{Path: "/v1/auth", Secure: false, SameSite: http.SameSiteLaxMode}}
+	a := &authenticator{cookies: cookieConfig{Path: "/", Secure: false, SameSite: http.SameSiteLaxMode}}
 
 	w := httptest.NewRecorder()
 	a.setSessionCookie(w, "sid-123")
@@ -231,7 +231,7 @@ func TestSetSessionCookie_InsecureMode(t *testing.T) {
 }
 
 func TestClearSessionCookie(t *testing.T) {
-	a := &authenticator{cookies: cookieConfig{Path: "/v1/auth", Secure: true, SameSite: http.SameSiteLaxMode}}
+	a := &authenticator{cookies: cookieConfig{Path: "/", Secure: true, SameSite: http.SameSiteLaxMode}}
 
 	w := httptest.NewRecorder()
 	a.clearSessionCookie(w)
@@ -243,8 +243,8 @@ func TestClearSessionCookie(t *testing.T) {
 	if c.Value != "" {
 		t.Errorf("Value = %q, want empty (cleared)", c.Value)
 	}
-	if c.Path != "/v1/auth" {
-		t.Errorf("Path = %q, want %q", c.Path, "/v1/auth")
+	if c.Path != "/" {
+		t.Errorf("Path = %q, want %q", c.Path, "/")
 	}
 	if !c.HttpOnly {
 		t.Error("cleared cookie must stay HttpOnly")
