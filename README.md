@@ -34,7 +34,7 @@ The Dev Container mounts the workspace at `/workspace` and runs `go mod download
 - Config.yaml.config:
   - `database.connection_string` (on the app service): `postgres://db_user:db_password@db:5432/tenkei?sslmode=disable`
 
-Go toolchain: [go.mod](go.mod) declares Go `1.26.4`. The devcontainer image tracks Go 1.x; if you need to pin to exactly 1.26.4, we can switch to a tagged image.
+Go toolchain: [go.mod](go.mod) declares Go `1.26.6`. The devcontainer image tracks Go 1.x; if you need to pin to exactly 1.26.6, we can switch to a tagged image.
 
 ## Common Commands
 

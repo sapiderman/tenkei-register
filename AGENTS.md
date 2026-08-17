@@ -1,6 +1,6 @@
 # Tenkei Register Backend
 
-**Repo**: `sapiderman/tenkei-register` | **Language**: Go 1.26.4 | **License**: MIT
+**Repo**: `sapiderman/tenkei-register` | **Language**: Go 1.26.6 | **License**: MIT
 
 ## AI Rules
 
