@@ -33,7 +33,7 @@ func newTestAuthenticator(v Verifier, s SessionStore) *authenticator {
 		db:       nil, // not used in handler tests
 		verifier: v,
 		sessions: s,
-		cookies:  cookieConfig{Path: "/v1/auth", Secure: true, SameSite: http.SameSiteLaxMode},
+		cookies:  cookieConfig{Path: "/", Secure: true, SameSite: http.SameSiteLaxMode},
 	}
 }
 
@@ -89,8 +89,8 @@ func TestHandleLogin_Success(t *testing.T) {
 		if !c.HttpOnly {
 			t.Error("session cookie must be HttpOnly")
 		}
-		if c.Path != "/v1/auth" {
-			t.Errorf("session cookie Path = %q, want %q", c.Path, "/v1/auth")
+		if c.Path != "/" {
+			t.Errorf("session cookie Path = %q, want %q", c.Path, "/")
 		}
 	}
 }
@@ -237,7 +237,7 @@ func TestHandleLogin_SuccessIsAudited(t *testing.T) {
 		db:       db,
 		verifier: &mockVerifier{userID: userID},
 		sessions: &mockSessionStore{},
-		cookies:  cookieConfig{Path: "/v1/auth", Secure: true, SameSite: http.SameSiteLaxMode},
+		cookies:  cookieConfig{Path: "/", Secure: true, SameSite: http.SameSiteLaxMode},
 	}
 
 	body := `{"identifier":"audit-success@example.com","password":"testpassword"}`
@@ -272,7 +272,7 @@ func TestHandleLogin_FailureIsAudited(t *testing.T) {
 		db:       db,
 		verifier: &mockVerifier{userID: 0, err: ErrInvalidCredentials},
 		sessions: &mockSessionStore{},
-		cookies:  cookieConfig{Path: "/v1/auth"},
+		cookies:  cookieConfig{Path: "/"},
 	}
 
 	body := `{"identifier":"test@example.com","password":"wrongpassword"}`
@@ -312,7 +312,7 @@ func newDBTestAuthenticator(t *testing.T) (*authenticator, *bun.DB) {
 		logger:   zerolog.Nop(),
 		validate: validator.New(),
 		db:       db,
-		cookies:  cookieConfig{Path: "/v1/auth"},
+		cookies:  cookieConfig{Path: "/"},
 	}, db
 }
 
@@ -379,7 +379,7 @@ func TestHandleUpdateProfile_Success(t *testing.T) {
 	}
 
 	// Verify the update landed in the DB.
-	user, err := a.dbGetUserByID(t.Context(), userID)
+	user, err := GetUserByID(t.Context(), a.db, userID)
 	if err != nil {
 		t.Fatalf("dbGetUserByID: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestHandleLogoutAll_Success(t *testing.T) {
 		validate: validator.New(),
 		db:       db,
 		sessions: store,
-		cookies:  cookieConfig{Path: "/v1/auth"},
+		cookies:  cookieConfig{Path: "/"},
 	}
 
 	req := withUserID(httptest.NewRequest("POST", "/v1/auth/logout-all", nil), userID)
@@ -540,7 +540,7 @@ func TestHandleLogoutAll_InvalidateAllError(t *testing.T) {
 	a := &authenticator{
 		logger:   zerolog.Nop(),
 		sessions: s,
-		cookies:  cookieConfig{Path: "/v1/auth"},
+		cookies:  cookieConfig{Path: "/"},
 	}
 
 	req := withUserID(httptest.NewRequest("POST", "/v1/auth/logout-all", nil), 1)

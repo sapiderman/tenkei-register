@@ -20,8 +20,10 @@ type SessionStore interface {
 	Create(ctx context.Context, userID int64, verified bool) (sessionID string, err error)
 
 	// Validate checks whether a session ID is valid, not expired, and verified.
-	// Returns the associated user ID.
-	Validate(ctx context.Context, sessionID string) (userID int64, err error)
+	// Returns the associated user ID and the user's current role (resolved per
+	// request from the joined user row, so a role change takes effect on the
+	// next request without reissuing the session).
+	Validate(ctx context.Context, sessionID string) (userID int64, role string, err error)
 
 	// Invalidate destroys a single session (logout).
 	Invalidate(ctx context.Context, sessionID string) error

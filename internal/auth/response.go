@@ -4,9 +4,9 @@ import (
 	"github.com/sapiderman/tenkei-register/internal/types"
 )
 
-// profileFromUser maps a database User to a safe ProfileResponse.
-// password_hash is never included.
-func profileFromUser(user *types.User) ProfileResponse {
+// ProfileFromUser maps a database User to a safe ProfileResponse.
+// password_hash is never included. Shared by self-profile and admin.
+func ProfileFromUser(user *types.User) ProfileResponse {
 	var dob, lgd string
 	if !user.DateOfBirth.IsZero() {
 		dob = user.DateOfBirth.Format("2006-01-02")

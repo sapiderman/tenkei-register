@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/config"
+	"github.com/sapiderman/tenkei-register/internal/admin"
 	"github.com/sapiderman/tenkei-register/internal/auth"
 	"github.com/sapiderman/tenkei-register/internal/database"
 	mymiddleware "github.com/sapiderman/tenkei-register/internal/middleware"
@@ -33,6 +34,10 @@ func NewHTTPHandler(ctx context.Context, db *database.Database, cfg *config.Conf
 
 	register.NewRouter(ctx, r, log, validator, db.DB, cfg)
 	auth.NewRouter(ctx, r, log, validator, db.DB, cfg)
+	// Admin area reuses the auth session/role middleware; wired once here and
+	// passed in so authn/authz is defined in exactly one place.
+	adminMW := auth.NewMiddleware(auth.NewDBSessionStore(db.DB), cfg.Server.Mode == "production")
+	admin.NewRouter(ctx, r, log, validator, db.DB, adminMW)
 
 	return r, nil
 }

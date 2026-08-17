@@ -23,7 +23,7 @@ func (a *authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 	userID, requires2FA, err := a.verifier.Verify(r.Context(), req.Identifier, req.Password)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
-			a.audit(r.Context(), 0, "login_failed")
+			Audit(r.Context(), a.db, a.logger, 0, "login_failed")
 			log.Warn().Str("identifier", mask(req.Identifier)).Msg("login failed")
 			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 			return
@@ -41,7 +41,7 @@ func (a *authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.setSessionCookie(w, sessionID)
-	a.audit(r.Context(), userID, "login")
+	Audit(r.Context(), a.db, a.logger, userID, "login")
 
 	if requires2FA {
 		server.WriteJSON(w, http.StatusOK, map[string]string{"status": "2fa_required"})
@@ -55,7 +55,7 @@ func (a *authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 func (a *authenticator) handleGetProfile(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromContext(r.Context())
 
-	user, err := a.dbGetUserByID(r.Context(), userID)
+	user, err := GetUserByID(r.Context(), a.db, userID)
 	if err != nil {
 		if errors.Is(err, ErrUserNotFound) {
 			server.WriteJSON(w, http.StatusNotFound, map[string]string{"error": "user not found"})
@@ -66,7 +66,7 @@ func (a *authenticator) handleGetProfile(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	server.WriteJSON(w, http.StatusOK, profileFromUser(user))
+	server.WriteJSON(w, http.StatusOK, ProfileFromUser(user))
 }
 
 func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Request) {
@@ -83,7 +83,7 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if err := a.dbUpdateUserProfile(r.Context(), userID, &req); err != nil {
+	if err := UpdateUserProfile(r.Context(), a.db, userID, &req); err != nil {
 		if errors.Is(err, ErrUpdateConflict) {
 			server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email already exists."})
 			return
@@ -97,7 +97,7 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	a.audit(r.Context(), userID, "profile_update")
+	Audit(r.Context(), a.db, a.logger, userID, "profile_update")
 	log.Info().Int64("user_id", userID).Msg("profile updated")
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -114,7 +114,7 @@ func (a *authenticator) handleLogout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.clearSessionCookie(w)
-	a.audit(r.Context(), userID, "logout")
+	Audit(r.Context(), a.db, a.logger, userID, "logout")
 	log.Info().Int64("user_id", userID).Msg("user logged out")
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -131,7 +131,7 @@ func (a *authenticator) handleLogoutAll(w http.ResponseWriter, r *http.Request) 
 	}
 
 	a.clearSessionCookie(w)
-	a.audit(r.Context(), userID, "logout_all")
+	Audit(r.Context(), a.db, a.logger, userID, "logout_all")
 	log.Info().Int64("user_id", userID).Msg("all sessions invalidated")
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }

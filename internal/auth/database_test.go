@@ -28,7 +28,7 @@ func TestDBGetUserByID(t *testing.T) {
 
 	a := &authenticator{logger: zerolog.Nop(), db: db}
 
-	user, err := a.dbGetUserByID(t.Context(), userID)
+	user, err := GetUserByID(t.Context(), a.db, userID)
 	if err != nil {
 		t.Fatalf("dbGetUserByID() error: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestDBGetUserByID_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	a := &authenticator{logger: zerolog.Nop(), db: db}
 
-	_, err := a.dbGetUserByID(t.Context(), 999999999)
+	_, err := GetUserByID(t.Context(), a.db, 999999999)
 	if err != ErrUserNotFound {
 		t.Errorf("expected ErrUserNotFound, got %v", err)
 	}
@@ -68,13 +68,13 @@ func TestDBUpdateUserProfile_BasicUpdate(t *testing.T) {
 		Rank:             "5th Kyu",
 		ConsentMarketing: &trueVal,
 	}
-	err = a.dbUpdateUserProfile(t.Context(), userID, req)
+	err = UpdateUserProfile(t.Context(), a.db, userID, req)
 	if err != nil {
 		t.Fatalf("dbUpdateUserProfile() error: %v", err)
 	}
 
 	// Verify
-	user, err := a.dbGetUserByID(t.Context(), userID)
+	user, err := GetUserByID(t.Context(), a.db, userID)
 	if err != nil {
 		t.Fatalf("dbGetUserByID() error: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestDBUpdateUserProfile_DuplicateEmail(t *testing.T) {
 
 	// Try to update user2's email to user1's email
 	req := &UpdateProfileRequest{Email: "dup-email1@example.com"}
-	err := a.dbUpdateUserProfile(t.Context(), user2ID, req)
+	err := UpdateUserProfile(t.Context(), a.db, user2ID, req)
 	if err != ErrUpdateConflict {
 		t.Errorf("expected ErrUpdateConflict for duplicate email, got %v", err)
 	}
@@ -121,7 +121,7 @@ func TestDBUpdateUserProfile_DuplicateWhatsApp_NoConflict(t *testing.T) {
 
 	// WhatsApp is no longer unique: sharing a number must NOT conflict.
 	req := &UpdateProfileRequest{WhatsApp: "+628200000001"}
-	err := a.dbUpdateUserProfile(t.Context(), user2ID, req)
+	err := UpdateUserProfile(t.Context(), a.db, user2ID, req)
 	if err != nil {
 		t.Errorf("expected no conflict for duplicate WhatsApp, got %v", err)
 	}
@@ -136,7 +136,7 @@ func TestDBUpdateUserProfile_InvalidRank(t *testing.T) {
 	a := &authenticator{logger: zerolog.Nop(), db: db}
 
 	req := &UpdateProfileRequest{Rank: "Black Belt Supreme"}
-	err := a.dbUpdateUserProfile(t.Context(), userID, req)
+	err := UpdateUserProfile(t.Context(), a.db, userID, req)
 	if err != ErrInvalidRank {
 		t.Errorf("expected ErrInvalidRank, got %v", err)
 	}
@@ -146,7 +146,7 @@ func TestDBUpdateUserProfile_NotFound(t *testing.T) {
 	db := setupTestDB(t)
 	a := &authenticator{logger: zerolog.Nop(), db: db}
 
-	err := a.dbUpdateUserProfile(t.Context(), 999999999, &UpdateProfileRequest{Name: "x"})
+	err := UpdateUserProfile(t.Context(), a.db, 999999999, &UpdateProfileRequest{Name: "x"})
 	if err != ErrUserNotFound {
 		t.Errorf("expected ErrUserNotFound, got %v", err)
 	}
@@ -169,7 +169,7 @@ func TestDBUpdateUserProfile_InvalidDates(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := a.dbUpdateUserProfile(t.Context(), userID, tc.req)
+			err := UpdateUserProfile(t.Context(), a.db, userID, tc.req)
 			if err == nil {
 				t.Error("expected error for invalid date")
 			}
@@ -185,7 +185,7 @@ func TestAudit_ClosedDB(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	a.audit(t.Context(), 1, "test_action_closed_") // must not panic
+	Audit(t.Context(), a.db, a.logger, 1, "test_action_closed_") // must not panic
 }
 
 func TestAudit(t *testing.T) {
@@ -200,7 +200,7 @@ func TestAudit(t *testing.T) {
 	_, _ = db.NewRaw(`DELETE FROM audit WHERE user_id = ? AND action = ?`, userID, "test_action_unique_").Exec(t.Context())
 
 	// Should not panic or error
-	a.audit(t.Context(), userID, "test_action_unique_")
+	Audit(t.Context(), a.db, a.logger, userID, "test_action_unique_")
 
 	// Verify audit record exists
 	var count int

@@ -41,12 +41,15 @@ func TestDBSessionStore_CRUD(t *testing.T) {
 	}
 
 	// Validate
-	gotUserID, err := store.Validate(t.Context(), sessionID)
+	gotUserID, gotRole, err := store.Validate(t.Context(), sessionID)
 	if err != nil {
 		t.Fatalf("Validate() error: %v", err)
 	}
 	if gotUserID != userID {
 		t.Errorf("expected userID %d, got %d", userID, gotUserID)
+	}
+	if gotRole != "user" {
+		t.Errorf("expected role 'user', got %q", gotRole)
 	}
 
 	// Invalidate
@@ -56,7 +59,7 @@ func TestDBSessionStore_CRUD(t *testing.T) {
 	}
 
 	// Validate after invalidate — should fail
-	_, err = store.Validate(t.Context(), sessionID)
+	_, _, err = store.Validate(t.Context(), sessionID)
 	if err != ErrSessionNotFound {
 		t.Errorf("expected ErrSessionNotFound after invalidate, got %v", err)
 	}
@@ -87,11 +90,11 @@ func TestDBSessionStore_InvalidateAll(t *testing.T) {
 	}
 
 	// Both should be gone
-	_, err = store.Validate(t.Context(), id1)
+	_, _, err = store.Validate(t.Context(), id1)
 	if err != ErrSessionNotFound {
 		t.Errorf("session1: expected ErrSessionNotFound, got %v", err)
 	}
-	_, err = store.Validate(t.Context(), id2)
+	_, _, err = store.Validate(t.Context(), id2)
 	if err != ErrSessionNotFound {
 		t.Errorf("session2: expected ErrSessionNotFound, got %v", err)
 	}
@@ -117,7 +120,7 @@ func TestDBSessionStore_ExpiredSessionRejected(t *testing.T) {
 	}
 
 	store := NewDBSessionStore(db)
-	_, err = store.Validate(t.Context(), sessionID)
+	_, _, err = store.Validate(t.Context(), sessionID)
 	if err != ErrSessionNotFound {
 		t.Errorf("expected ErrSessionNotFound for expired session, got %v", err)
 	}
@@ -137,8 +140,42 @@ func TestDBSessionStore_UnverifiedSessionRejected(t *testing.T) {
 	}
 
 	// Validate should reject unverified sessions
-	_, err = store.Validate(t.Context(), sessionID)
+	_, _, err = store.Validate(t.Context(), sessionID)
 	if err != ErrSessionNotFound {
 		t.Errorf("expected ErrSessionNotFound for unverified session, got %v", err)
+	}
+}
+
+// TestDBSessionStore_ValidateReturnsCurrentRole verifies the sessions⋈users
+// join returns the user's current role, so an out-of-band role change takes
+// effect on the very next request without reissuing the session.
+func TestDBSessionStore_ValidateReturnsCurrentRole(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash := "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ12"
+	userID := insertTestUser(t, db, "session-role@example.com", "+62833333330", hash)
+
+	store := NewDBSessionStore(db)
+	sessionID, err := store.Create(t.Context(), userID, true)
+	if err != nil {
+		t.Fatalf("Create() error: %v", err)
+	}
+
+	// Initially 'user' (insertTestUser creates role='user').
+	if _, role, err := store.Validate(t.Context(), sessionID); err != nil || role != "user" {
+		t.Fatalf("initial role = %q, err = %v, want %q", role, err, "user")
+	}
+
+	// Flip the user's role out-of-band; the same session must now report it.
+	if _, err := db.NewRaw(`UPDATE users SET role = 'admin' WHERE id = ?`, userID).Exec(t.Context()); err != nil {
+		t.Fatalf("update role: %v", err)
+	}
+
+	_, role, err := store.Validate(t.Context(), sessionID)
+	if err != nil {
+		t.Fatalf("Validate after role change: %v", err)
+	}
+	if role != "admin" {
+		t.Errorf("role = %q, want %q (join must reflect the new role)", role, "admin")
 	}
 }
