@@ -3,7 +3,11 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -25,8 +29,23 @@ func (s *DBSessionStore) Create(ctx context.Context, userID int64, verified bool
 		return "", err
 	}
 
+	// Opportunistic purge of expired sessions, piggy-backed on login cadence.
+	// Best-effort: a failure here must never block a login. Cloud Run forbids
+	// background tickers (AGENTS.md AI Rule 8), so login is the trigger.
+	// ponytail: fixed single DELETE — if login QPS grows enough that this
+	// per-login delete matters, move to an external Cloud Scheduler endpoint.
+	if _, err := s.db.NewDelete().
+		Model((*Session)(nil)).
+		Where("expires_at < NOW()").
+		Exec(ctx); err != nil {
+		// Best-effort only; a later login retries. Never block a login on this.
+	}
+
 	session := &Session{
-		ID:        id,
+		// Only the SHA-256 of the token is persisted: a DB read/leak (backup,
+		// SQL injection elsewhere, provider compromise) must not yield usable
+		// session tokens.
+		ID:        hashSessionID(id),
 		UserID:    userID,
 		ExpiresAt: time.Now().Add(sessionMaxAge),
 		Verified:  verified,
@@ -54,10 +73,15 @@ func (s *DBSessionStore) Validate(ctx context.Context, sessionID string) (int64,
 		   FROM sessions s
 		   JOIN users u ON u.id = s.user_id
 		  WHERE s.id = ? AND s.expires_at > NOW()`,
-		sessionID,
+		hashSessionID(sessionID),
 	).Scan(ctx, &row)
 	if err != nil {
-		return 0, "", ErrSessionNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, "", ErrSessionNotFound
+		}
+		// A DB outage must surface as 500, not masquerade as "session expired"
+		// (a 401 that lies about the cause and hides auth incidents).
+		return 0, "", fmt.Errorf("session store: %w", err)
 	}
 
 	// 2FA seam: if the session is not yet verified (pending 2FA),
@@ -72,7 +96,7 @@ func (s *DBSessionStore) Validate(ctx context.Context, sessionID string) (int64,
 func (s *DBSessionStore) Invalidate(ctx context.Context, sessionID string) error {
 	_, err := s.db.NewDelete().
 		Model((*Session)(nil)).
-		Where("id = ?", sessionID).
+		Where("id = ?", hashSessionID(sessionID)).
 		Exec(ctx)
 	return err
 }
@@ -92,4 +116,14 @@ func generateSessionID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(bytes), nil
+}
+
+// hashSessionID maps a bearer token to its at-rest form. SHA-256 (not bcrypt)
+// because session IDs are 256 bits of CSPRNG output — unguessable, so a
+// fast hash is sufficient (bcrypt's slowness buys nothing here and would
+// add latency to every request). Output is 64 hex chars: same width as
+// the raw token, so the sessions.id column needs no migration.
+func hashSessionID(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }

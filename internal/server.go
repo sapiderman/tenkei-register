@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"os/signal"
+	"strings"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -41,6 +42,15 @@ func StartServer(ctx context.Context) {
 		log.Fatal().Caller().Err(err).Msg("db didnt want to play pong")
 		return
 	}
+
+	// Cap the global log level before serving: zerolog defaults to Debug,
+	// which would log every SQL statement in production (queryHook).
+	// Invalid values fall back to info rather than refusing to start.
+	level, err := zerolog.ParseLevel(strings.ToLower(strings.TrimSpace(config.Server.LogLevel)))
+	if err != nil {
+		level = zerolog.InfoLevel
+	}
+	zerolog.SetGlobalLevel(level)
 
 	server.timeStart = time.Now()
 	server.validator = validator.New()
