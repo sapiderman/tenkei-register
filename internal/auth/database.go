@@ -33,8 +33,10 @@ func GetUserByID(ctx context.Context, db *bun.DB, userID int64) (*types.User, er
 // email uniqueness. The caller owns loading the user — self-profile loads by
 // id; admin loads with SELECT ... FOR UPDATE inside a scoped transaction, so
 // the scope check and the write are one atomic step (no check-then-act gap).
-// Immutable fields (id, role, password_hash, created_at) are structurally
-// absent from UpdateProfileRequest, so role can never be set here.
+// The write uses an explicit column whitelist: immutable columns (id, role,
+// password_hash, created_at, join_date) can never be touched even if the
+// struct grows new fields, so a concurrent role change can't be clobbered
+// by a full-row rewrite from this path.
 func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *UpdateProfileRequest) error {
 	userID := user.ID
 
@@ -100,6 +102,16 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 
 	_, err := db.NewUpdate().
 		Model(user).
+		// Explicit whitelist of the editable columns. Everything else on the
+		// struct (role, password_hash, id, created_at, join_date) is excluded
+		// from the UPDATE, so this path can never clobber a concurrent role or
+		// credential change that happened after the caller loaded the row.
+		Column(
+			"name", "email", "whatsapp_number",
+			"dojo", "rank", "date_of_birth", "last_grading_date",
+			"medical_conditions", "emergency_contact_name", "emergency_contact_number",
+			"consent_datastore", "consent_marketing",
+		).
 		Where("id = ?", userID).
 		Exec(ctx)
 	if err != nil {
@@ -123,6 +135,17 @@ func UpdateUserProfile(ctx context.Context, db *bun.DB, userID int64, req *Updat
 		return ErrUserNotFound
 	}
 	return ApplyProfileUpdate(ctx, db, &user, req)
+}
+
+// UpdateUserPassword sets a user's password hash by id (self-service
+// password change). Column-explicit, like ApplyProfileUpdate.
+func UpdateUserPassword(ctx context.Context, db *bun.DB, userID int64, passwordHash string) error {
+	_, err := db.NewUpdate().
+		Model((*types.User)(nil)).
+		Set("password_hash = ?", passwordHash).
+		Where("id = ?", userID).
+		Exec(ctx)
+	return err
 }
 
 // TODO(audit-cleanup): implement opportunistic audit self-cleanup when audit

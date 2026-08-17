@@ -449,8 +449,8 @@ func TestHandleUpdateProfile_Conflict(t *testing.T) {
 	_ = insertTestUser(t, db, "profile-conflict1@example.com", "+628500000003", string(hash))
 	user2ID := insertTestUser(t, db, "profile-conflict2@example.com", "+628500000004", string(hash))
 
-	// Try to steal user1's email.
-	body := `{"email":"profile-conflict1@example.com"}`
+	// Try to steal user1's email. Re-auth is required because email changes.
+	body := `{"email":"profile-conflict1@example.com","current_password":"testpassword"}`
 	req := withUserID(httptest.NewRequest("PUT", "/v1/auth/profile", strings.NewReader(body)), user2ID)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()

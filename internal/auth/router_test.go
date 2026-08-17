@@ -44,6 +44,14 @@ func TestNewRouter_RoutesRegistered(t *testing.T) {
 		t.Errorf("logout route: got %d, want 401", w.Code)
 	}
 
+	// Password-change route wired (session-protected).
+	req = httptest.NewRequest(http.MethodPost, "/v1/auth/password", nil)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("password route: got %d, want 401", w.Code)
+	}
+
 	// Unknown route falls through to chi's default 404.
 	req = httptest.NewRequest(http.MethodGet, "/v1/auth/nope", nil)
 	w = httptest.NewRecorder()

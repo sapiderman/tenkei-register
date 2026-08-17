@@ -54,6 +54,7 @@
 | PUT | `/v1/auth/profile` | XCFBypass + session cookie | Update profile |
 | POST | `/v1/auth/logout` | XCFBypass + session cookie | Invalidate session |
 | POST | `/v1/auth/logout-all` | XCFBypass + session cookie | Revoke all sessions (compromise response) |
+| POST | `/v1/auth/password` | XCFBypass + session cookie | Change own password (re-verifies current; invalidates other sessions) |
 | GET | `/v1/admin/users` | XCFBypass + session + role>=2 | List members (viewer-scoped, paginated, summary only) |
 | GET | `/v1/admin/users/:id` | XCFBypass + session + role>=2 | View a member's full profile (admin: new/user only; superuser: anyone) |
 | PUT | `/v1/admin/users/:id` | XCFBypass + session + role>=2 | Edit a member's profile (same whitelist as self-profile; role absent) |
@@ -97,9 +98,9 @@ Applied in `internal/http.go`. Order matters.
 
 ## Key Architecture Decisions
 
-- **JSON-only endpoints**: All routes accept and return JSON. Input strings are HTML-escaped (`html.EscapeString`) before storage to prevent XSS.
+- **JSON-only endpoints**: All routes accept and return JSON. Input strings are trimmed only; HTML escaping happens at the frontend renderer (escaping at storage corrupts data and is skipped inconsistently).
 - **Anti-enumeration**: Login returns identical `401 "invalid credentials"` for wrong password and nonexistent user.
-- **Session cookies**: `HttpOnly`, `Secure` in production, `SameSite=Lax`, `Path=/` (must reach both `/v1/auth` and `/v1/admin`).
+- **Session cookies**: `HttpOnly`, `Secure` in production, `SameSite=Lax`, `Path=/` (must reach both `/v1/auth` and `/v1/admin`). Only `SHA-256(token)` is stored server-side — a DB leak yields no usable sessions. Expired rows are purged opportunistically at login (no background workers on Cloud Run).
 - **PII masking**: Login failures log `mask(identifier)` only — never raw email/WhatsApp.
 - **Connection pool**: 25 max open, 10 idle, 5-minute lifetime.
 - **Server timeouts**: Read/Write 10s, Idle 120s, ReadHeaderTimeout from config (default 5s).
@@ -137,6 +138,7 @@ Viper merges: env vars (`TENKEI_` prefix) > `config.yaml` > compiled defaults. `
 | `TENKEI_SERVER_TURNSTILE_SECRET_KEY` | — | Cloudflare Turnstile secret |
 | `TENKEI_SERVER_TURNSTILE_ENABLED` | `true` | Toggle Turnstile verification |
 | `TENKEI_SERVER_READ_HEADER_TIMEOUT` | `5s` | Prevent Slowloris attacks |
+| `TENKEI_SERVER_LOG_LEVEL` | `info` | zerolog global level (debug logs every SQL statement) |
 | `TENKEI_SERVER_VERSION` | `0.0.5-YYYYMMDD` | Reported in startup log |
 
 ## Local Development
@@ -178,7 +180,7 @@ Known baseline: `gosec` `G117` on `password` fields in JSON structs. Acceptable 
 
 - **`Verifier`** — Today `BcryptVerifier`; decorator pattern for 2FA (`requires2FA` seam ready)
 - **`SessionStore`** — Today `DBSessionStore`; swap for Redis when scaling. `Validate` returns `(userID, role)` via a sessions⋈users join.
-- **`PasswordResetter`** — Defined in `auth/interfaces.go`, not yet implemented. Seam for forgot-password flow.
+- **`PasswordResetter`** — Defined in `auth/interfaces.go`, not yet implemented. Seam for forgot-password (needs a mailer; none exists). Authenticated change-password is implemented (`POST /v1/auth/password`).
 - **`auth.Middleware`** — Shared session + role middleware handle, reused by `/v1/auth` and `/v1/admin` so authn/authz is defined once.
 
 ---

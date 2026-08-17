@@ -32,6 +32,7 @@ type ServerConfig struct {
 	TurnstileSecret   string `mapstructure:"turnstile_secret_key"`
 	TurnstileEnabled  bool   `mapstructure:"turnstile_enabled"`
 	Version           string `mapstructure:"version"`
+	LogLevel          string `mapstructure:"log_level"`
 	XCFBypass         string `mapstructure:"x_cf_bypass"` // need to match with frontend config
 }
 
@@ -48,8 +49,11 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "production")
 	viper.SetDefault("server.read_header_timeout", "5s")
-	viper.SetDefault("server.version", "0.0.7-20260817")
+	viper.SetDefault("server.version", "0.0.8-20260818")
 	viper.SetDefault("server.turnstile_enabled", true)
+	// zerolog's default global level is Debug, which logs every SQL statement
+	// in production (queryHook logs at Debug). Default the app to info.
+	viper.SetDefault("server.log_level", "info")
 
 	// 2. Load Config File
 	if err := viper.ReadInConfig(); err != nil {
@@ -74,6 +78,7 @@ func LoadConfig(path string) (*Config, error) {
 	_ = viper.BindEnv("server.x_cf_bypass", "TENKEI_SERVER_X_CF_BYPASS")
 	_ = viper.BindEnv("server.mode", "TENKEI_SERVER_MODE")
 	_ = viper.BindEnv("server.turnstile_enabled", "TENKEI_SERVER_TURNSTILE_ENABLED")
+	_ = viper.BindEnv("server.log_level", "TENKEI_SERVER_LOG_LEVEL")
 
 	// 4. Unmarshal into Struct
 	var cfg Config

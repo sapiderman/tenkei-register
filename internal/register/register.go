@@ -4,7 +4,6 @@ package register
 import (
 	"encoding/json"
 	"errors"
-	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -34,9 +33,13 @@ type RegistrationFormData struct {
 	CfTurnstileResponse    string `json:"cf_turnstile_response"`
 }
 
-// sanitizeInput trims whitespace and escapes HTML to prevent XSS attacks.
+// sanitizeInput trims surrounding whitespace. HTML escaping was removed
+// deliberately: this is a JSON API, so XSS is the frontend renderer's job;
+// escaping at storage corrupts data ("O'Brien" → "O&#39;Brien") and was
+// applied inconsistently anyway (profile updates never escaped). If an HTML
+// surface is ever added, escape at render time there.
 func sanitizeInput(input string) string {
-	return html.EscapeString(strings.TrimSpace(input))
+	return strings.TrimSpace(input)
 }
 
 // sanitizeFormData applies sanitizeInput to all string fields in RegistrationFormData.

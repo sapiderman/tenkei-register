@@ -123,10 +123,10 @@ func TestSanitizeInput(t *testing.T) {
 		want  string
 	}{
 		{"trims whitespace", "  hello  ", "hello"},
-		{"escapes HTML", "<script>alert('xss')</script>", "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"},
+		{"preserves HTML (escaping moved to render)", "<script>alert('xss')</script>", "<script>alert('xss')</script>"},
 		{"empty string", "", ""},
 		{"normal text", "John Doe", "John Doe"},
-		{"escapes ampersand", "A & B", "A &amp; B"},
+		{"preserves ampersand (no double-escape risk)", "A & B", "A & B"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -143,8 +143,8 @@ func TestSanitizeFormData(t *testing.T) {
 		Email: " test@example.com ",
 	}
 	d = sanitizeFormData(d)
-	if d.Name != "&lt;b&gt;Test&lt;/b&gt;" {
-		t.Errorf("expected sanitized name, got %q", d.Name)
+	if d.Name != "<b>Test</b>" {
+		t.Errorf("expected trimmed (unescaped) name, got %q", d.Name)
 	}
 	if d.Email != "test@example.com" {
 		t.Errorf("expected trimmed email, got %q", d.Email)
@@ -437,7 +437,9 @@ func TestHandleSubmission_DuplicateEmail(t *testing.T) {
 	}
 }
 
-func TestHandleSubmission_XSSInName(t *testing.T) {
+// TestHandleSubmission_HTMLInNameStoredVerbatim verifies the storage layer
+// keeps user input verbatim (trimmed only): escaping belongs to the renderer.
+func TestHandleSubmission_HTMLInNameStoredVerbatim(t *testing.T) {
 	reg := newTestRegistrarDB(t)
 	db := reg.db
 	wipeUsers(t, db, "xss-test@example.com", "+6281111111111")
@@ -460,9 +462,9 @@ func TestHandleSubmission_XSSInName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to fetch user: %v", err)
 	}
-	const want = "&lt;script&gt;alert(&#39;xss&#39;)&lt;/script&gt;"
+	const want = "<script>alert('xss')</script>"
 	if name != want {
-		t.Errorf("name: want sanitized %q, got %q", want, name)
+		t.Errorf("name: want verbatim %q, got %q", want, name)
 	}
 }
 

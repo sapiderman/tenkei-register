@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/sapiderman/tenkei-register/internal/server"
@@ -26,8 +27,14 @@ func (a *authenticator) sessionRequired(next http.Handler) http.Handler {
 
 		userID, role, err := a.sessions.Validate(r.Context(), cookie.Value)
 		if err != nil {
-			a.clearSessionCookie(w)
-			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired"})
+			if errors.Is(err, ErrSessionNotFound) {
+				a.clearSessionCookie(w)
+				server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired"})
+				return
+			}
+			// Infrastructure failure (DB down, timeout). A 401 here would lie
+			// about the cause and silently log the user out during an outage.
+			server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 			return
 		}
 
