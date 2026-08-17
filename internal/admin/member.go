@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"database/sql"
+	"errors"
 
 	"github.com/sapiderman/tenkei-register/internal/auth"
 	"github.com/sapiderman/tenkei-register/internal/types"
@@ -25,7 +26,10 @@ func roleVisibleToViewer(viewerLevel int, role string) bool {
 func getMemberForViewer(ctx context.Context, db *bun.DB, viewerLevel int, targetID int64) (*types.User, error) {
 	user, err := auth.GetUserByID(ctx, db, targetID)
 	if err != nil {
-		return nil, ErrMemberNotFound
+		if errors.Is(err, auth.ErrUserNotFound) {
+			return nil, ErrMemberNotFound
+		}
+		return nil, err // infra failure: caller's default branch surfaces 500
 	}
 	if !roleVisibleToViewer(viewerLevel, user.Role) {
 		return nil, ErrMemberNotFound
@@ -76,10 +80,12 @@ func updateMemberForViewer(ctx context.Context, db *bun.DB, viewerLevel int, tar
 //   - ErrMemberNotFound if the target does not exist or is out of scope
 //   - ErrNotPending if the in-scope target is not in the 'new' role
 //
-// The UPDATE is conditional on role='new', so a concurrent role change is a
-// no-op surfaced as ErrNotPending. Verification does NOT invalidate sessions —
-// it is an upgrade within the soft-gated self-service tier (the member keeps
-// self-serving exactly as before, now with role='user').
+// The UPDATE is conditional on role='new'. If it affects 0 rows the target
+// changed between our fetch and update: either a racing verify (still in
+// scope -> ErrNotPending) or a promotion out of viewer scope
+// (-> ErrMemberNotFound, anti-enumeration). Verification does NOT invalidate
+// sessions — it is an upgrade within the soft-gated self-service tier (the
+// member keeps self-serving exactly as before, now with role='user').
 func verifyMember(ctx context.Context, db *bun.DB, viewerLevel int, targetID int64) error {
 	member, err := getMemberForViewer(ctx, db, viewerLevel, targetID)
 	if err != nil {
@@ -99,7 +105,12 @@ func verifyMember(ctx context.Context, db *bun.DB, viewerLevel int, targetID int
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		// Flipped by a concurrent request between our fetch and update.
+		// Target changed state between our fetch and update: either a racing
+		// verify (still in scope -> 409) or a promotion out of viewer scope
+		// (-> 404, anti-enumeration). Re-check scope to tell them apart.
+		if _, err := getMemberForViewer(ctx, db, viewerLevel, targetID); err != nil {
+			return ErrMemberNotFound
+		}
 		return ErrNotPending
 	}
 	return nil

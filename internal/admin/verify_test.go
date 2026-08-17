@@ -47,6 +47,8 @@ func TestVerify_AdminVerifiesNew(t *testing.T) {
 }
 
 func TestVerify_AlreadyUser_409(t *testing.T) {
+	// Also pins the in-scope half of the RowsAffected==0 race mapping in
+	// verifyMember: re-check finds the target in scope -> 409, not 404.
 	a, r := verifyMux(t)
 	tid := insertUser(t, a.db, "Verified", "verify-user@example.com", types.RoleUser)
 

@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"database/sql"
+	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -17,7 +20,10 @@ func GetUserByID(ctx context.Context, db *bun.DB, userID int64) (*types.User, er
 		Where("id = ?", userID).
 		Scan(ctx)
 	if err != nil {
-		return nil, ErrUserNotFound
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrUserNotFound
+		}
+		return nil, fmt.Errorf("get user by id: %w", err)
 	}
 	return &user, nil
 }

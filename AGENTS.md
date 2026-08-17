@@ -91,7 +91,7 @@ Applied in `internal/http.go`. Order matters.
 1. `RequestID` → 2. `Recoverer` → 3. `AccessLog` → 4. `Heartbeat("/health")` → 5. `XCFBypass` → 6. `Timeout(60s)`
 
 - `/health` bypasses `XCFBypass` (check #4 before #5).
-- **Auth endpoints additionally use `sessionRequired` middleware (inside `auth.NewRouter`).
+- **Auth endpoints** additionally use `sessionRequired` middleware (inside `auth.NewRouter`).
 - **Admin endpoints** (`/v1/admin/*`) use `sessionRequired` + `roleRequired(>=2)`; the role-management route additionally stacks `roleRequired(>=3)`. Role is resolved per request via the `sessions ⋈ users` join in `SessionStore.Validate`.
 - Turnstile is **not** middleware — it's verified inline in the register handler (`verifyTurnstileResponse`), gated by `TENKEI_SERVER_TURNSTILE_ENABLED`.
 
