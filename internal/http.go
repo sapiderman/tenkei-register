@@ -14,6 +14,7 @@ import (
 	"github.com/sapiderman/tenkei-register/internal/admin"
 	"github.com/sapiderman/tenkei-register/internal/auth"
 	"github.com/sapiderman/tenkei-register/internal/database"
+	"github.com/sapiderman/tenkei-register/internal/mailer"
 	mymiddleware "github.com/sapiderman/tenkei-register/internal/middleware"
 	"github.com/sapiderman/tenkei-register/internal/register"
 )
@@ -32,7 +33,19 @@ func NewHTTPHandler(ctx context.Context, db *database.Database, cfg *config.Conf
 	r.Use(middleware.Timeout(60 * time.Second))
 	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
-	register.NewRouter(ctx, r, log, validator, db.DB, cfg)
+	// Mailer selection matrix lives in mailer.New (disabled / Resend / Log /
+	// refuse-to-boot); constructed once here and injected where needed.
+	mail, err := mailer.New(mailer.Config{
+		Enabled:    cfg.Mailer.Enabled,
+		APIKey:     cfg.Mailer.ResendAPIKey,
+		From:       cfg.Mailer.From,
+		Production: cfg.Server.Mode == "production",
+	}, log)
+	if err != nil {
+		return nil, err
+	}
+
+	register.NewRouter(ctx, r, log, validator, db.DB, cfg, mail)
 	auth.NewRouter(ctx, r, log, validator, db.DB, cfg)
 	// Admin area reuses the auth session/role middleware; wired once here and
 	// passed in so authn/authz is defined in exactly one place.

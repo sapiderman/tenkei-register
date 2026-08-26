@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/config"
+	"github.com/sapiderman/tenkei-register/internal/mailer"
 	mymiddleware "github.com/sapiderman/tenkei-register/internal/middleware"
 	"github.com/uptrace/bun"
 )
@@ -24,9 +25,16 @@ type registrar struct {
 	// Zero value falls back to the real URL in verifyTurnstileResponse;
 	// tests set this to a httptest.Server URL.
 	turnstileVerifyURL string
+
+	// Email notifications: mailer is the shared send seam (constructed once
+	// in internal.NewHTTPHandler), tmpl the pre-parsed templates, notifyEmail
+	// the fixed group address receiving new-registration notices.
+	mailer      mailer.Mailer
+	tmpl        *templates
+	notifyEmail string
 }
 
-func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validate *validator.Validate, db *bun.DB, cfg *config.Config) {
+func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validate *validator.Validate, db *bun.DB, cfg *config.Config, mail mailer.Mailer) {
 	reg := &registrar{
 		context:          ctx,
 		logger:           logger,
@@ -34,6 +42,9 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 		db:               db,
 		turnstileSecret:  cfg.Server.TurnstileSecret,
 		turnstileEnabled: cfg.Server.TurnstileEnabled,
+		mailer:           mail,
+		tmpl:             newTemplates(),
+		notifyEmail:      cfg.Mailer.NotifyEmail,
 	}
 
 	r.Route("/v1/register", func(r chi.Router) {
