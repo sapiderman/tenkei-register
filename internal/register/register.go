@@ -419,7 +419,8 @@ func (r *registrar) sendRegistrationEmails(req *http.Request, user *User) {
 
 	var sends []pendingSend
 	if welcome, err := r.tmpl.welcomeMessage(user); err != nil {
-		r.recordEmailFailure(ctx, user, "welcome", welcome.To, err)
+		// welcome is the zero value here; the intended recipient is user.Email.
+		r.recordEmailFailure(ctx, user, "welcome", user.Email, err)
 	} else {
 		sends = append(sends, pendingSend{which: "welcome", msg: welcome})
 	}
@@ -460,14 +461,17 @@ func (r *registrar) sendRegistrationEmails(req *http.Request, user *User) {
 }
 
 // recordEmailFailure logs a masked send failure and writes the categorized
-// audit row. The audit action carries only the closed-set category — no error
-// text, no addresses (Resend errors can embed the recipient address).
+// audit row. Raw error text is deliberately kept out of logs: provider errors
+// (see mailer.SendError) can embed the recipient address, so only the
+// closed-set category is emitted. The audit action carries the same category —
+// no error text, no addresses.
 func (r *registrar) recordEmailFailure(ctx context.Context, user *User, which, to string, err error) {
+	category := mailer.CategoryOf(err)
 	r.logger.Error().
-		Err(err).
 		Str("email", which).
 		Str("to", maskAddress(to)).
+		Str("category", category).
 		Int64("user_id", user.ID).
 		Msg("registration email send failed")
-	auth.Audit(ctx, r.db, r.logger, user.ID, "email_send_failed:"+which+":"+mailer.CategoryOf(err))
+	auth.Audit(ctx, r.db, r.logger, user.ID, "email_send_failed:"+which+":"+category)
 }

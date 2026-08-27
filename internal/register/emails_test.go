@@ -1,7 +1,9 @@
 package register
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +13,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/internal/mailer"
 )
 
@@ -214,13 +217,13 @@ func TestSendRegistrationEmails_ParallelOverlap(t *testing.T) {
 	}
 }
 
-// TestHandleSubmission_DisabledMailer_NoSendsNoAudits uses the real selection
-// matrix (mailer.New disabled → no-op) end to end.
-func TestHandleSubmission_DisabledMailer_NoSendsNoAudits(t *testing.T) {
+// TestHandleSubmission_DisabledMailer_NoAudits uses the real selection matrix
+// (mailer.New disabled → no-op) end to end: registration still succeeds and
+// no email failures are audited. The noop's drop-behavior itself is covered
+// by TestNoopMailer in internal/mailer.
+func TestHandleSubmission_DisabledMailer_NoAudits(t *testing.T) {
 	reg := newTestRegistrarDB(t)
 	wipeUsers(t, reg.db, "mail-off@example.com")
-	fm := &fakeMailer{}
-	reg.mailer = fm
 	// Swap in the real disabled implementation: sends are accepted and dropped.
 	disabled, err := mailer.New(mailer.Config{Enabled: false}, reg.logger)
 	if err != nil {
@@ -234,9 +237,6 @@ func TestHandleSubmission_DisabledMailer_NoSendsNoAudits(t *testing.T) {
 		t.Fatalf("expected 201, got %d", w.Code)
 	}
 
-	if got := len(fm.sentTo("")); got != 0 {
-		t.Errorf("disabled mailer must not reach the fake, got %d", got)
-	}
 	uid := registeredUserID(t, reg, "mail-off@example.com")
 	if actions := emailFailActions(t, reg, uid); len(actions) != 0 {
 		t.Errorf("disabled mailer must not audit, got %v", actions)
@@ -250,17 +250,88 @@ var errFake = errors.New("scripted failure")
 // failure guards: broken templates mean no sends; audit writes are no-ops
 // without a DB (auth.Audit nil-checks), so this runs DB-free.
 func TestSendRegistrationEmails_BuildFailureAuditsBoth(t *testing.T) {
+	var logBuf bytes.Buffer
 	reg := newTestRegistrar()
+	reg.logger = zerolog.New(&logBuf)
 	broken := template.Must(template.New("broken").Parse(`{{index .Name 500}}`))
 	reg.tmpl.welcomeSubject = broken
 	reg.tmpl.adminSubject = broken
 	fm := &fakeMailer{}
 	reg.mailer = fm
 
+	u := testUser()
 	// Must not panic and must not send anything.
-	reg.sendRegistrationEmails(httptest.NewRequest("POST", "/v1/register/", nil), testUser())
+	reg.sendRegistrationEmails(httptest.NewRequest("POST", "/v1/register/", nil), u)
 	if got := len(fm.sentTo("")); got != 0 {
 		t.Errorf("build failure must not send, got %d", got)
+	}
+
+	// The welcome failure log must carry the masked intended recipient
+	// (user.Email), never the zero-value welcome.To (which masks to "***").
+	wantTo := maskAddress(u.Email)
+	for _, line := range bytes.Split(bytes.TrimRight(logBuf.Bytes(), "\n"), []byte("\n")) {
+		var rec struct {
+			Email string `json:"email"`
+			To    string `json:"to"`
+		}
+		if err := json.Unmarshal(line, &rec); err != nil {
+			t.Fatalf("parse log line %q: %v", line, err)
+		}
+		if rec.Email != "welcome" {
+			continue
+		}
+		if rec.To != wantTo {
+			t.Errorf("welcome failure to = %q, want %q (masked %q)", rec.To, wantTo, u.Email)
+		}
+		return
+	}
+	t.Errorf("no welcome failure log line in %q", logBuf.String())
+}
+
+// TestRecordEmailFailure_LogsCategoryNotRawError keeps provider error text
+// (which can embed the recipient address, see mailer.SendError) out of logs:
+// the log line must carry only the closed-set category and the masked
+// recipient. DB-free: auth.Audit no-ops without a DB.
+func TestRecordEmailFailure_LogsCategoryNotRawError(t *testing.T) {
+	var logBuf bytes.Buffer
+	reg := newTestRegistrar()
+	reg.logger = zerolog.New(&logBuf)
+	reg.mailer = &fakeMailer{failTo: map[string]error{
+		// Resend-style error echoing the recipient in its message.
+		"test@example.com": &mailer.SendError{
+			Category: mailer.CategoryAuth,
+			Err:      errors.New(`invalid to: "test@example.com" (resend api)`),
+		},
+	}}
+
+	reg.sendRegistrationEmails(httptest.NewRequest("POST", "/v1/register/", nil), testUser())
+
+	logs := logBuf.String()
+	if strings.Contains(logs, "test@example.com") || strings.Contains(logs, "invalid to") {
+		t.Errorf("raw error text leaked into logs: %q", logs)
+	}
+
+	var found bool
+	for _, line := range bytes.Split(bytes.TrimRight(logBuf.Bytes(), "\n"), []byte("\n")) {
+		var rec struct {
+			Email    string `json:"email"`
+			Category string `json:"category"`
+			To       string `json:"to"`
+		}
+		if err := json.Unmarshal(line, &rec); err != nil || rec.Email != "welcome" {
+			continue
+		}
+		found = true
+		if rec.Category != mailer.CategoryAuth {
+			t.Errorf("category = %q, want %q", rec.Category, mailer.CategoryAuth)
+		}
+		if want := maskAddress("test@example.com"); rec.To != want {
+			t.Errorf("to = %q, want %q", rec.To, want)
+		}
+		break
+	}
+	if !found {
+		t.Errorf("no welcome failure log line in %q", logs)
 	}
 }
 
