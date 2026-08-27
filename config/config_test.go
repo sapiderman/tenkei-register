@@ -34,6 +34,10 @@ func hideEnv(t *testing.T) {
 		"TENKEI_SERVER_TURNSTILE_ENABLED",
 		"TENKEI_SERVER_X_CF_BYPASS",
 		"TENKEI_DATABASE_CONNECTION_STRING",
+		"TENKEI_RESEND_API_KEY",
+		"TENKEI_MAILER_ENABLED",
+		"TENKEI_MAILER_FROM",
+		"TENKEI_MAILER_NOTIFY_EMAIL",
 	} {
 		t.Setenv(k, "")
 	}
@@ -45,6 +49,7 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	t.Setenv("TENKEI_SERVER_TURNSTILE_ENABLED", "false")
 	t.Setenv("TENKEI_DATABASE_CONNECTION_STRING", "postgres://user:pass@host/db")
 	t.Setenv("TENKEI_SERVER_X_CF_BYPASS", "test-key")
+	t.Setenv("TENKEI_MAILER_ENABLED", "false")
 
 	cfg, err := LoadConfig(t.TempDir())
 	if err != nil {
@@ -143,6 +148,7 @@ func TestLoadConfig_SuccessWithTurnstileSecret(t *testing.T) {
 	t.Setenv("TENKEI_SERVER_TURNSTILE_SECRET_KEY", "secret")
 	t.Setenv("TENKEI_DATABASE_CONNECTION_STRING", "postgres://user:pass@host/db")
 	t.Setenv("TENKEI_SERVER_X_CF_BYPASS", "test-key")
+	t.Setenv("TENKEI_MAILER_ENABLED", "false")
 
 	if _, err := LoadConfig(t.TempDir()); err != nil {
 		t.Fatalf("LoadConfig: %v", err)
@@ -205,6 +211,107 @@ func TestLoadConfig_InvalidConfigFile(t *testing.T) {
 
 	if _, err := LoadConfig(dir); err == nil {
 		t.Fatal("expected error for invalid config file")
+	}
+}
+
+// --- Mailer config (selection matrix) ---
+
+// baseMailerEnv sets the env every mailer test depends on: turnstile off,
+// DB + bypass present, mail enabled by default, no API key.
+func baseMailerEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("TENKEI_SERVER_TURNSTILE_ENABLED", "false")
+	t.Setenv("TENKEI_DATABASE_CONNECTION_STRING", "postgres://user:pass@host/db")
+	t.Setenv("TENKEI_SERVER_X_CF_BYPASS", "test-key")
+}
+
+func TestLoadConfig_MailerDefaults(t *testing.T) {
+	resetViper(t)
+	hideEnv(t)
+	t.Setenv("TENKEI_SERVER_MODE", "development")
+	t.Setenv("TENKEI_RESEND_API_KEY", "re_test")
+	baseMailerEnv(t)
+
+	cfg, err := LoadConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.Mailer.Enabled {
+		t.Error("mailer.enabled: want default true")
+	}
+	if cfg.Mailer.From != "Tenkei <no-reply@tenkeiaikidojo.org>" {
+		t.Errorf("mailer.from default: got %q", cfg.Mailer.From)
+	}
+	if cfg.Mailer.NotifyEmail != "info@tenkeiaikidojo.org" {
+		t.Errorf("mailer.notify_email default: got %q", cfg.Mailer.NotifyEmail)
+	}
+	if cfg.Mailer.ResendAPIKey != "re_test" {
+		t.Errorf("mailer.resend_api_key: got %q", cfg.Mailer.ResendAPIKey)
+	}
+}
+
+func TestLoadConfig_MailerEnvOverrides(t *testing.T) {
+	resetViper(t)
+	hideEnv(t)
+	t.Setenv("TENKEI_SERVER_MODE", "development")
+	baseMailerEnv(t)
+	t.Setenv("TENKEI_MAILER_ENABLED", "false")
+	t.Setenv("TENKEI_MAILER_FROM", "Custom <custom@tenkeiaikidojo.org>")
+	t.Setenv("TENKEI_MAILER_NOTIFY_EMAIL", "ops@tenkeiaikidojo.org")
+
+	cfg, err := LoadConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Mailer.Enabled {
+		t.Error("mailer.enabled: want false (env override)")
+	}
+	if cfg.Mailer.From != "Custom <custom@tenkeiaikidojo.org>" {
+		t.Errorf("mailer.from: got %q", cfg.Mailer.From)
+	}
+	if cfg.Mailer.NotifyEmail != "ops@tenkeiaikidojo.org" {
+		t.Errorf("mailer.notify_email: got %q", cfg.Mailer.NotifyEmail)
+	}
+}
+
+func TestLoadConfig_MailerEnabledNoKey_ProductionFails(t *testing.T) {
+	resetViper(t)
+	hideEnv(t)
+	// mode defaults to production; mail enabled defaults true; no API key.
+	baseMailerEnv(t)
+
+	_, err := LoadConfig(t.TempDir())
+	if err == nil {
+		t.Fatal("expected error: production + mailer enabled + no API key")
+	}
+	if !strings.Contains(err.Error(), "resend_api_key") {
+		t.Errorf("error should mention resend_api_key, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "re_test") || strings.Contains(err.Error(), "secret-value") {
+		t.Error("error must not leak any key value")
+	}
+}
+
+func TestLoadConfig_MailerEnabledNoKey_DevBoots(t *testing.T) {
+	resetViper(t)
+	hideEnv(t)
+	t.Setenv("TENKEI_SERVER_MODE", "development")
+	baseMailerEnv(t)
+
+	if _, err := LoadConfig(t.TempDir()); err != nil {
+		t.Fatalf("dev + no key must boot (LogMailer), got: %v", err)
+	}
+}
+
+func TestLoadConfig_MailerDisabledNoKey_ProductionBoots(t *testing.T) {
+	resetViper(t)
+	hideEnv(t)
+	// mode defaults to production; mailer disabled explicitly.
+	baseMailerEnv(t)
+	t.Setenv("TENKEI_MAILER_ENABLED", "false")
+
+	if _, err := LoadConfig(t.TempDir()); err != nil {
+		t.Fatalf("disabled mailer must boot in production, got: %v", err)
 	}
 }
 

@@ -29,10 +29,11 @@
 ├── config/                  # Viper config (env vars + YAML)
 ├── internal/
 │   ├── server.go            # StartServer, ServeWith (graceful shutdown)
-│   ├── http.go              # NewHTTPHandler, middleware wiring
+│   ├── http.go              # NewHTTPHandler, middleware wiring, mailer construction
 │   ├── auth/                # Login, session, profile, shared session/role middleware
-│   ├── register/           # Registration (JSON)
+│   ├── register/           # Registration (JSON) + registration email composition/sends
 │   ├── admin/              # Member administration (list/view/edit/verify/role)
+│   ├── mailer/              # Email seam: Resend (prod), LogMailer (dev), noop (disabled)
 │   ├── types/              # Shared bun models: User, Audit, Ranks, parse helpers
 │   ├── database/           # DB connection + query logging hook
 │   ├── middleware/          # XCFBypass, AccessLog
@@ -101,6 +102,7 @@ Applied in `internal/http.go`. Order matters.
 - **JSON-only endpoints**: All routes accept and return JSON. Input strings are trimmed only; HTML escaping happens at the frontend renderer (escaping at storage corrupts data and is skipped inconsistently).
 - **Anti-enumeration**: Login returns identical `401 "invalid credentials"` for wrong password and nonexistent user.
 - **Session cookies**: `HttpOnly`, `Secure` in production, `SameSite=Lax`, `Path=/` (must reach both `/v1/auth` and `/v1/admin`). Only `SHA-256(token)` is stored server-side — a DB leak yields no usable sessions. Expired rows are purged opportunistically at login (no background workers on Cloud Run).
+- **Registration emails** (Resend): after a successful insert, a welcome email (new user) and a new-registration notice (`info@tenkeiaikidojo.org`, name/email/rank/dojo only) are sent **in parallel** on `context.WithoutCancel(req.Context())` — a client disconnect never aborts delivery. The mailer owns a 5s timeout; each send goroutine has `defer recover()` (panic → audit `unknown`, never a crash); results are read only after `wg.Wait()` (happens-before). Email failure **never** fails the registration: 201 stands, failure is logged (masked recipient) and audited as `email_send_failed:{welcome|notify_admin}:{timeout|auth|network|api|unknown}`. Mailer selection: disabled → noop; enabled+key → Resend; enabled+keyless+prod → **startup fails**; enabled+keyless+dev → LogMailer (renders to logs). Templates: `html/template` for HTML parts only, `text/template` for subject/text (so `O'Brien` never renders as `O&#39;Connor`); parsed once at startup.
 - **PII masking**: Login failures log `mask(identifier)` only — never raw email/WhatsApp.
 - **Connection pool**: 25 max open, 10 idle, 5-minute lifetime.
 - **Server timeouts**: Read/Write 10s, Idle 120s, ReadHeaderTimeout from config (default 5s).
@@ -140,6 +142,10 @@ Viper merges: env vars (`TENKEI_` prefix) > `config.yaml` > compiled defaults. `
 | `TENKEI_SERVER_READ_HEADER_TIMEOUT` | `5s` | Prevent Slowloris attacks |
 | `TENKEI_SERVER_LOG_LEVEL` | `info` | zerolog global level (debug logs every SQL statement) |
 | `TENKEI_SERVER_VERSION` | `0.0.5-YYYYMMDD` | Reported in startup log |
+| `TENKEI_RESEND_API_KEY` | — | Resend API key. **Required in production when the mailer is enabled** — the app refuses to start without it (silent no-mail production is worse). Absent + non-production → LogMailer (emails render to logs). |
+| `TENKEI_MAILER_ENABLED` | `true` | Toggle registration emails without touching the API key secret (incident kill-switch). |
+| `TENKEI_MAILER_FROM` | `Tenkei <no-reply@tenkeiaikidojo.org>` | From address for all emails. |
+| `TENKEI_MAILER_NOTIFY_EMAIL` | `info@tenkeiaikidojo.org` | Group address receiving new-registration notices. |
 
 ## Local Development
 
@@ -180,7 +186,8 @@ Known baseline: `gosec` `G117` on `password` fields in JSON structs. Acceptable 
 
 - **`Verifier`** — Today `BcryptVerifier`; decorator pattern for 2FA (`requires2FA` seam ready)
 - **`SessionStore`** — Today `DBSessionStore`; swap for Redis when scaling. `Validate` returns `(userID, role)` via a sessions⋈users join.
-- **`PasswordResetter`** — Defined in `auth/interfaces.go`, not yet implemented. Seam for forgot-password (needs a mailer; none exists). Authenticated change-password is implemented (`POST /v1/auth/password`).
+- **`Mailer`** (`internal/mailer`) — Today `ResendMailer` (resend-go SDK, zero runtime deps); `LogMailer` for local dev; forgot-password will consume the same seam. Swap providers = one new implementation, zero caller changes.
+- **`PasswordResetter`** — Defined in `auth/interfaces.go`, not yet implemented. Seam for forgot-password; the mailer it needs now exists. Authenticated change-password is implemented (`POST /v1/auth/password`).
 - **`auth.Middleware`** — Shared session + role middleware handle, reused by `/v1/auth` and `/v1/admin` so authn/authz is defined once.
 
 ---

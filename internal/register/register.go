@@ -2,13 +2,18 @@
 package register
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
+	"github.com/sapiderman/tenkei-register/internal/auth"
+	"github.com/sapiderman/tenkei-register/internal/mailer"
 	"github.com/sapiderman/tenkei-register/internal/middleware"
 	"github.com/sapiderman/tenkei-register/internal/server"
 	"github.com/sapiderman/tenkei-register/internal/types"
@@ -367,9 +372,106 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	}
 
 	r.logger.Info().Int64("user_id", user.ID).Msg("user registered successfully")
+
+	// Side effects, never a gate: the insert already succeeded, so both emails
+	// are attempted before the 201 regardless of their outcome.
+	r.sendRegistrationEmails(req, &user)
+
 	server.WriteJSON(w, http.StatusCreated, map[string]string{"status": "ok"})
 }
 
 func (r *registrar) getUserCount(w http.ResponseWriter, req *http.Request) {
 	// TODO: Implement user count endpoint
+}
+
+// maskAddress partially hides an email address in logs (mirrors auth.mask):
+// "user@example.com" → "u*************m". AGENTS.md Rule 3: keep raw
+// identifiers out of logs; the audit row carries only user_id + category.
+func maskAddress(s string) string {
+	if len(s) <= 2 {
+		return "***"
+	}
+	return s[:1] + strings.Repeat("*", len(s)-2) + s[len(s)-1:]
+}
+
+// sendRegistrationEmails delivers the welcome and admin-notice emails after a
+// successful registration insert.
+//
+// Concurrency contract (see email-notif-plan.md Phase 3):
+//   - Sends run in parallel (two goroutines, sync.WaitGroup) and the handler
+//     waits for both before responding 201 — bounded, request-lifetime
+//     concurrency, not a background worker.
+//   - Sends use context.WithoutCancel(req.Context()): a client disconnect
+//     right after the insert can never abort delivery.
+//   - Each goroutine carries a panic recovery so an SDK/template panic kills
+//     only that send (wg.Done is deferred first, so it always runs).
+//   - Race-free collection: goroutine i writes only errs[i]; both are read
+//     strictly after wg.Wait() (happens-before per the Go memory model).
+//   - Failures never affect the registration outcome: they are logged with a
+//     masked recipient and audited as email_send_failed:{which}:{category}.
+func (r *registrar) sendRegistrationEmails(req *http.Request, user *User) {
+	ctx := context.WithoutCancel(req.Context())
+
+	type pendingSend struct {
+		which string // audit label: "welcome" | "notify_admin"
+		msg   mailer.Message
+	}
+
+	var sends []pendingSend
+	if welcome, err := r.tmpl.welcomeMessage(user); err != nil {
+		// welcome is the zero value here; the intended recipient is user.Email.
+		r.recordEmailFailure(ctx, user, "welcome", user.Email, err)
+	} else {
+		sends = append(sends, pendingSend{which: "welcome", msg: welcome})
+	}
+	if notice, err := r.tmpl.adminMessage(user, r.notifyEmail); err != nil {
+		r.recordEmailFailure(ctx, user, "notify_admin", r.notifyEmail, err)
+	} else {
+		sends = append(sends, pendingSend{which: "notify_admin", msg: notice})
+	}
+
+	var wg sync.WaitGroup
+	errs := make([]error, len(sends))
+	for i, s := range sends {
+		wg.Add(1)
+		go func(i int, s pendingSend) {
+			defer wg.Done() // registered first: runs last, even when recovering a panic
+			defer func() {
+				if rec := recover(); rec != nil {
+					// Logged here (not in recordEmailFailure) because the panicking
+					// frames exist only on this goroutine's stack right now.
+					r.logger.Error().Stack().
+						Str("email", s.which).
+						Int64("user_id", user.ID).
+						Interface("panic", rec).
+						Msg("panic during email send")
+					errs[i] = fmt.Errorf("panic during %s send: %v", s.which, rec)
+				}
+			}()
+			errs[i] = r.mailer.Send(ctx, s.msg)
+		}(i, s)
+	}
+	wg.Wait()
+
+	for i, s := range sends {
+		if errs[i] != nil {
+			r.recordEmailFailure(ctx, user, s.which, s.msg.To, errs[i])
+		}
+	}
+}
+
+// recordEmailFailure logs a masked send failure and writes the categorized
+// audit row. Raw error text is deliberately kept out of logs: provider errors
+// (see mailer.SendError) can embed the recipient address, so only the
+// closed-set category is emitted. The audit action carries the same category —
+// no error text, no addresses.
+func (r *registrar) recordEmailFailure(ctx context.Context, user *User, which, to string, err error) {
+	category := mailer.CategoryOf(err)
+	r.logger.Error().
+		Str("email", which).
+		Str("to", maskAddress(to)).
+		Str("category", category).
+		Int64("user_id", user.ID).
+		Msg("registration email send failed")
+	auth.Audit(ctx, r.db, r.logger, user.ID, "email_send_failed:"+which+":"+category)
 }

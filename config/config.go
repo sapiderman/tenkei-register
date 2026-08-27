@@ -24,6 +24,7 @@ func SetInitialized(initialized bool) {
 type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
+	Mailer   MailerConfig   `mapstructure:"mailer"`
 }
 type ServerConfig struct {
 	Port              string `mapstructure:"port"`
@@ -40,6 +41,16 @@ type DatabaseConfig struct {
 	ConnectionString string `mapstructure:"connection_string"`
 }
 
+// MailerConfig holds the Resend email settings. Enabled is a plain flag so
+// notifications can be toggled without touching the API key secret (same
+// split as turnstile_enabled / turnstile_secret_key).
+type MailerConfig struct {
+	Enabled      bool   `mapstructure:"enabled"`
+	ResendAPIKey string `mapstructure:"resend_api_key"`
+	From         string `mapstructure:"from"`
+	NotifyEmail  string `mapstructure:"notify_email"`
+}
+
 func LoadConfig(path string) (*Config, error) {
 	viper.AddConfigPath(path)
 	viper.SetConfigName("config") // Expects config.yaml, config.json, etc.
@@ -54,6 +65,9 @@ func LoadConfig(path string) (*Config, error) {
 	// zerolog's default global level is Debug, which logs every SQL statement
 	// in production (queryHook logs at Debug). Default the app to info.
 	viper.SetDefault("server.log_level", "info")
+	viper.SetDefault("mailer.enabled", true)
+	viper.SetDefault("mailer.from", "Tenkei <no-reply@tenkeiaikidojo.org>")
+	viper.SetDefault("mailer.notify_email", "info@tenkeiaikidojo.org")
 
 	// 2. Load Config File
 	if err := viper.ReadInConfig(); err != nil {
@@ -79,6 +93,10 @@ func LoadConfig(path string) (*Config, error) {
 	_ = viper.BindEnv("server.mode", "TENKEI_SERVER_MODE")
 	_ = viper.BindEnv("server.turnstile_enabled", "TENKEI_SERVER_TURNSTILE_ENABLED")
 	_ = viper.BindEnv("server.log_level", "TENKEI_SERVER_LOG_LEVEL")
+	_ = viper.BindEnv("mailer.resend_api_key", "TENKEI_RESEND_API_KEY")
+	_ = viper.BindEnv("mailer.enabled", "TENKEI_MAILER_ENABLED")
+	_ = viper.BindEnv("mailer.from", "TENKEI_MAILER_FROM")
+	_ = viper.BindEnv("mailer.notify_email", "TENKEI_MAILER_NOTIFY_EMAIL")
 
 	// 4. Unmarshal into Struct
 	var cfg Config
@@ -100,6 +118,16 @@ func LoadConfig(path string) (*Config, error) {
 
 	if strings.TrimSpace(cfg.Server.XCFBypass) == "" {
 		return nil, errors.New("server.x_cf_bypass not configured, check environment ***************************************")
+	}
+
+	// Mailer: fail fast in production when enabled without a key — a silent
+	// no-mail production is worse than a refused boot. Outside production the
+	// mailer degrades to a log-rendering implementation (see internal/mailer).
+	if cfg.Mailer.Enabled && strings.TrimSpace(cfg.Mailer.ResendAPIKey) == "" {
+		if cfg.Server.Mode == "production" {
+			return nil, errors.New("mailer.resend_api_key not configured (TENKEI_RESEND_API_KEY) — refusing to start with mail enabled **************************")
+		}
+		log.Warn().Msg("mailer enabled but TENKEI_RESEND_API_KEY not set — emails will render to logs, not send")
 	}
 
 	SetInitialized(true)

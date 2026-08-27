@@ -24,6 +24,9 @@ func newTestRegistrar() *registrar {
 		logger:           zerolog.Nop(),
 		validate:         validator.New(),
 		turnstileEnabled: false,
+		tmpl:             newTemplates(),
+		mailer:           &fakeMailer{},
+		notifyEmail:      "info@tenkeiaikidojo.org",
 	}
 }
 
@@ -35,6 +38,9 @@ func newTestRegistrarDB(t *testing.T) *registrar {
 		validate:         validator.New(),
 		db:               setupTestDB(t),
 		turnstileEnabled: false,
+		tmpl:             newTemplates(),
+		mailer:           &fakeMailer{},
+		notifyEmail:      "info@tenkeiaikidojo.org",
 	}
 }
 

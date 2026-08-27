@@ -17,7 +17,7 @@ func TestNewRouter_RoutesRegistered(t *testing.T) {
 
 	// db is nil: none of the exercised paths touch the database
 	// (count is a stub, and an empty-body submission fails in DecodeJSON first).
-	NewRouter(t.Context(), r, zerolog.Nop(), validator.New(), nil, cfg)
+	NewRouter(t.Context(), r, zerolog.Nop(), validator.New(), nil, cfg, &fakeMailer{})
 
 	// Count route wired: the stub handler returns 200 with an empty body.
 	req := httptest.NewRequest(http.MethodGet, "/v1/register/count", nil)
@@ -50,7 +50,7 @@ func TestNewRouter_RateLimit(t *testing.T) {
 	cfg := &config.Config{Server: config.ServerConfig{TurnstileEnabled: false}}
 
 	// Single router instance so the httprate limiter state is shared.
-	NewRouter(t.Context(), r, zerolog.Nop(), validator.New(), nil, cfg)
+	NewRouter(t.Context(), r, zerolog.Nop(), validator.New(), nil, cfg, &fakeMailer{})
 
 	// The register group is rate-limited to 5/min per IP; the 6th request
 	// within the window is throttled.
