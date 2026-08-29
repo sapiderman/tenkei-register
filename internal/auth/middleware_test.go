@@ -15,9 +15,11 @@ type mockSessionStore struct {
 	invalidateErr    error
 	invalidateAllErr error
 	createErr        error
+	createCalls      int
 }
 
 func (m *mockSessionStore) Create(ctx context.Context, userID int64, verified bool) (string, error) {
+	m.createCalls++
 	if m.createErr != nil {
 		return "", m.createErr
 	}

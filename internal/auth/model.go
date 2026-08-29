@@ -20,8 +20,9 @@ type Session struct {
 
 // LoginRequest is the inbound payload for POST /v1/auth/login.
 type LoginRequest struct {
-	Identifier string `json:"identifier" validate:"required"` // email
-	Password   string `json:"password" validate:"required"`   // #nosec G117 — never logged
+	Identifier          string `json:"identifier" validate:"required"` // email
+	Password            string `json:"password" validate:"required"`   // #nosec G117 — never logged
+	CfTurnstileResponse string `json:"cf_turnstile_response"`          // optional here; required by the handler when Turnstile is enabled
 }
 
 // ProfileResponse is the safe outbound shape for GET /v1/auth/profile.
