@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
+	"github.com/sapiderman/tenkei-register/internal/turnstile"
 	"github.com/uptrace/bun"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -28,12 +29,13 @@ func (m *mockVerifier) Verify(ctx context.Context, identifier, password string) 
 
 func newTestAuthenticator(v Verifier, s SessionStore) *authenticator {
 	return &authenticator{
-		logger:   zerolog.Nop(),
-		validate: validator.New(),
-		db:       nil, // not used in handler tests
-		verifier: v,
-		sessions: s,
-		cookies:  cookieConfig{Path: "/", Secure: true, SameSite: http.SameSiteLaxMode},
+		logger:    zerolog.Nop(),
+		validate:  validator.New(),
+		db:        nil, // not used in handler tests
+		verifier:  v,
+		sessions:  s,
+		cookies:   cookieConfig{Path: "/", Secure: true, SameSite: http.SameSiteLaxMode},
+		turnstile: turnstile.New("", false, zerolog.Nop()), // disabled: bypass
 	}
 }
 
@@ -139,6 +141,61 @@ func TestHandleLogin_2FARequired(t *testing.T) {
 	}
 }
 
+func TestHandleLogin_TurnstileFails(t *testing.T) {
+	v := &mockVerifier{userID: 1, err: nil}
+	s := &mockSessionStore{}
+	a := newTestAuthenticator(v, s)
+	a.turnstile = turnstile.New("test-secret", true, zerolog.Nop()) // enabled, no token → fail
+
+	body := `{"identifier":"test@example.com","password":"correctpassword"}`
+	req := httptest.NewRequest("POST", "/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	a.handleLogin(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	_ = json.NewDecoder(w.Body).Decode(&resp)
+	if resp["error"] != "Security verification failed. Please try again in a few minutes." {
+		t.Errorf("expected security verification error, got %q", resp["error"])
+	}
+	if s.createCalls != 0 {
+		t.Error("no session must be created when turnstile fails")
+	}
+}
+
+func TestHandleLogin_TurnstileSuccess(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"hostname":"example.com"}`))
+	}))
+	t.Cleanup(ts.Close)
+
+	v := &mockVerifier{userID: 1, requires2FA: false, err: nil}
+	s := &mockSessionStore{}
+	a := newTestAuthenticator(v, s)
+	tv := turnstile.New("test-secret", true, zerolog.Nop())
+	tv.VerifyURL = ts.URL
+	a.turnstile = tv
+
+	body := `{"identifier":"test@example.com","password":"correctpassword","cf_turnstile_response":"token"}`
+	req := httptest.NewRequest("POST", "/v1/auth/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	a.handleLogin(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if s.createCalls != 1 {
+		t.Errorf("expected session created, got %d", s.createCalls)
+	}
+}
+
 func TestHandleLogin_MissingFields(t *testing.T) {
 	v := &mockVerifier{}
 	s := &mockSessionStore{}
@@ -232,12 +289,13 @@ func TestHandleLogin_SuccessIsAudited(t *testing.T) {
 	userID := insertTestUser(t, db, "audit-success@example.com", "+628500000010", string(hash))
 
 	a := &authenticator{
-		logger:   zerolog.Nop(),
-		validate: validator.New(),
-		db:       db,
-		verifier: &mockVerifier{userID: userID},
-		sessions: &mockSessionStore{},
-		cookies:  cookieConfig{Path: "/", Secure: true, SameSite: http.SameSiteLaxMode},
+		logger:    zerolog.Nop(),
+		validate:  validator.New(),
+		db:        db,
+		verifier:  &mockVerifier{userID: userID},
+		sessions:  &mockSessionStore{},
+		cookies:   cookieConfig{Path: "/", Secure: true, SameSite: http.SameSiteLaxMode},
+		turnstile: turnstile.New("", false, zerolog.Nop()),
 	}
 
 	body := `{"identifier":"audit-success@example.com","password":"testpassword"}`
@@ -267,12 +325,13 @@ func TestHandleLogin_SuccessIsAudited(t *testing.T) {
 func TestHandleLogin_FailureIsAudited(t *testing.T) {
 	db := setupTestDB(t)
 	a := &authenticator{
-		logger:   zerolog.Nop(),
-		validate: validator.New(),
-		db:       db,
-		verifier: &mockVerifier{userID: 0, err: ErrInvalidCredentials},
-		sessions: &mockSessionStore{},
-		cookies:  cookieConfig{Path: "/"},
+		logger:    zerolog.Nop(),
+		validate:  validator.New(),
+		db:        db,
+		verifier:  &mockVerifier{userID: 0, err: ErrInvalidCredentials},
+		sessions:  &mockSessionStore{},
+		cookies:   cookieConfig{Path: "/"},
+		turnstile: turnstile.New("", false, zerolog.Nop()),
 	}
 
 	body := `{"identifier":"test@example.com","password":"wrongpassword"}`

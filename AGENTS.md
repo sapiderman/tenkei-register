@@ -36,7 +36,8 @@
 │   ├── mailer/              # Email seam: Resend (prod), LogMailer (dev), noop (disabled)
 │   ├── types/              # Shared bun models: User, Audit, Ranks, parse helpers
 │   ├── database/           # DB connection + query logging hook
-│   ├── middleware/          # XCFBypass, AccessLog
+│   ├── middleware/          # XCFBypass, AccessLog, RateLimit (httprate, CF-aware IP key)
+│   ├── turnstile/           # Cloudflare Turnstile verifier (shared by register + login)
 │   └── server/             # JSON response helpers (WriteJSON, DecodeJSON, DecodeAndValidate)
 ├── migrations/
 ├── .devcontainer/           # Go + PostgreSQL dev environment
@@ -50,7 +51,7 @@
 | ------ | ---- | ---------- | ------- |
 | POST | `/v1/register/` | XCFBypass + rate-limit (5/min/IP) | New member registration (JSON) |
 | GET | `/v1/register/count` | XCFBypass + rate-limit (5/min/IP) | Total registered user count |
-| POST | `/v1/auth/login` | XCFBypass + rate-limit (10/min/IP) | Session login (JSON) |
+| POST | `/v1/auth/login` | XCFBypass + rate-limit (10/min/IP) | Session login (JSON, Turnstile-verified) |
 | GET | `/v1/auth/profile` | XCFBypass + session cookie | View profile |
 | PUT | `/v1/auth/profile` | XCFBypass + session cookie | Update profile |
 | POST | `/v1/auth/logout` | XCFBypass + session cookie | Invalidate session |
@@ -95,7 +96,7 @@ Applied in `internal/http.go`. Order matters.
 - `/health` bypasses `XCFBypass` (check #4 before #5).
 - **Auth endpoints** additionally use `sessionRequired` middleware (inside `auth.NewRouter`).
 - **Admin endpoints** (`/v1/admin/*`) use `sessionRequired` + `roleRequired(>=2)`; the role-management route additionally stacks `roleRequired(>=3)`. Role is resolved per request via the `sessions ⋈ users` join in `SessionStore.Validate`.
-- Turnstile is **not** middleware — it's verified inline in the register handler (`verifyTurnstileResponse`), gated by `TENKEI_SERVER_TURNSTILE_ENABLED`.
+- Turnstile is **not** middleware — it's verified inline in the register and login handlers via the shared `internal/turnstile` package (`turnstile.New` — same secret/enable config serves both), gated by `TENKEI_SERVER_TURNSTILE_ENABLED`.
 
 ## Key Architecture Decisions
 
@@ -137,11 +138,11 @@ Viper merges: env vars (`TENKEI_` prefix) > `config.yaml` > compiled defaults. `
 | `TENKEI_DATABASE_CONNECTION_STRING` | — | PostgreSQL DSN (required) |
 | `TENKEI_SERVER_X_CF_BYPASS` | — | Shared header secret |
 | `TENKEI_SERVER_MODE` | `production` | `production` → Secure cookies, strict XCFBypass |
-| `TENKEI_SERVER_TURNSTILE_SECRET_KEY` | — | Cloudflare Turnstile secret |
+| `TENKEI_SERVER_TURNSTILE_SECRET_KEY` | — | Cloudflare Turnstile secret. **Required at startup when Turnstile is enabled** — the app refuses to boot if enabled + empty (set `TENKEI_SERVER_TURNSTILE_ENABLED=false` locally to skip). |
 | `TENKEI_SERVER_TURNSTILE_ENABLED` | `true` | Toggle Turnstile verification |
 | `TENKEI_SERVER_READ_HEADER_TIMEOUT` | `5s` | Prevent Slowloris attacks |
 | `TENKEI_SERVER_LOG_LEVEL` | `info` | zerolog global level (debug logs every SQL statement) |
-| `TENKEI_SERVER_VERSION` | `0.0.5-YYYYMMDD` | Reported in startup log |
+| `TENKEI_SERVER_VERSION` | `0.0.8-20260818` | Reported in startup log |
 | `TENKEI_RESEND_API_KEY` | — | Resend API key. **Required in production when the mailer is enabled** — the app refuses to start without it (silent no-mail production is worse). Absent + non-production → LogMailer (emails render to logs). |
 | `TENKEI_MAILER_ENABLED` | `true` | Toggle registration emails without touching the API key secret (incident kill-switch). |
 | `TENKEI_MAILER_FROM` | `Tenkei <no-reply@tenkeiaikidojo.org>` | From address for all emails. |

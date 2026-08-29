@@ -10,16 +10,18 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/config"
 	mymiddleware "github.com/sapiderman/tenkei-register/internal/middleware"
+	"github.com/sapiderman/tenkei-register/internal/turnstile"
 	"github.com/uptrace/bun"
 )
 
 type authenticator struct {
-	logger   zerolog.Logger
-	validate *validator.Validate
-	db       *bun.DB
-	verifier Verifier
-	sessions SessionStore
-	cookies  cookieConfig
+	logger    zerolog.Logger
+	validate  *validator.Validate
+	db        *bun.DB
+	verifier  Verifier
+	sessions  SessionStore
+	cookies   cookieConfig
+	turnstile *turnstile.Verifier
 }
 
 // Middleware exposes the session and role middleware bound to an
@@ -71,12 +73,13 @@ func cookieConfigFor(secure bool) cookieConfig {
 // NewRouter mounts the auth routes on the given chi.Router.
 func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validate *validator.Validate, db *bun.DB, cfg *config.Config) {
 	a := &authenticator{
-		logger:   logger.With().Str("module", "auth").Logger(),
-		validate: validate,
-		db:       db,
-		verifier: NewBcryptVerifier(db),
-		sessions: NewDBSessionStore(db),
-		cookies:  cookieConfigFor(cfg.Server.Mode == "production"),
+		logger:    logger.With().Str("module", "auth").Logger(),
+		validate:  validate,
+		db:        db,
+		verifier:  NewBcryptVerifier(db),
+		sessions:  NewDBSessionStore(db),
+		cookies:   cookieConfigFor(cfg.Server.Mode == "production"),
+		turnstile: turnstile.New(cfg.Server.TurnstileSecret, cfg.Server.TurnstileEnabled, logger),
 	}
 
 	r.Route("/v1/auth", func(r chi.Router) {

@@ -21,6 +21,13 @@ func (a *authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Turnstile bot check before any credential work (mirrors registration).
+	if err := a.turnstile.Verify(r, req.CfTurnstileResponse); err != nil {
+		log.Warn().Err(err).Msg("login turnstile verification failed")
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Security verification failed. Please try again in a few minutes."})
+		return
+	}
+
 	userID, requires2FA, err := a.verifier.Verify(r.Context(), req.Identifier, req.Password)
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {

@@ -10,21 +10,16 @@ import (
 	"github.com/sapiderman/tenkei-register/config"
 	"github.com/sapiderman/tenkei-register/internal/mailer"
 	mymiddleware "github.com/sapiderman/tenkei-register/internal/middleware"
+	"github.com/sapiderman/tenkei-register/internal/turnstile"
 	"github.com/uptrace/bun"
 )
 
 type registrar struct {
-	context          context.Context
-	logger           zerolog.Logger
-	validate         *validator.Validate
-	db               *bun.DB
-	turnstileSecret  string
-	turnstileEnabled bool
-
-	// turnstileVerifyURL overrides the Cloudflare siteverify endpoint.
-	// Zero value falls back to the real URL in verifyTurnstileResponse;
-	// tests set this to a httptest.Server URL.
-	turnstileVerifyURL string
+	context   context.Context
+	logger    zerolog.Logger
+	validate  *validator.Validate
+	db        *bun.DB
+	turnstile *turnstile.Verifier
 
 	// Email notifications: mailer is the shared send seam (constructed once
 	// in internal.NewHTTPHandler), tmpl the pre-parsed templates, notifyEmail
@@ -36,15 +31,14 @@ type registrar struct {
 
 func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validate *validator.Validate, db *bun.DB, cfg *config.Config, mail mailer.Mailer) {
 	reg := &registrar{
-		context:          ctx,
-		logger:           logger,
-		validate:         validate,
-		db:               db,
-		turnstileSecret:  cfg.Server.TurnstileSecret,
-		turnstileEnabled: cfg.Server.TurnstileEnabled,
-		mailer:           mail,
-		tmpl:             newTemplates(),
-		notifyEmail:      cfg.Mailer.NotifyEmail,
+		context:     ctx,
+		logger:      logger,
+		validate:    validate,
+		db:          db,
+		turnstile:   turnstile.New(cfg.Server.TurnstileSecret, cfg.Server.TurnstileEnabled, logger),
+		mailer:      mail,
+		tmpl:        newTemplates(),
+		notifyEmail: cfg.Mailer.NotifyEmail,
 	}
 
 	r.Route("/v1/register", func(r chi.Router) {
