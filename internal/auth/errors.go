@@ -19,4 +19,8 @@ var (
 
 	// ErrInvalidRank is returned when rank is not in the allowed list.
 	ErrInvalidRank = errors.New("invalid rank")
+
+	// ErrFacultyMajorRequired is returned when a save would leave a member
+	// of the UI campus dojo without faculty or major.
+	ErrFacultyMajorRequired = errors.New("faculty and major are required for this dojo")
 )

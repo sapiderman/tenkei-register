@@ -24,6 +24,8 @@ type RegistrationFormData struct {
 	WhatsApp               string `json:"whatsapp"`
 	DateOfBirth            string `json:"date_of_birth"`
 	Dojo                   string `json:"dojo"`
+	Faculty                string `json:"faculty"`
+	Major                  string `json:"major"`
 	Rank                   string `json:"rank"`
 	LastGradingDate        string `json:"last_grading_date"`
 	Role                   string `json:"role"`
@@ -51,6 +53,8 @@ func sanitizeFormData(d RegistrationFormData) RegistrationFormData {
 	d.WhatsApp = sanitizeInput(d.WhatsApp)
 	d.DateOfBirth = sanitizeInput(d.DateOfBirth)
 	d.Dojo = sanitizeInput(d.Dojo)
+	d.Faculty = sanitizeInput(d.Faculty)
+	d.Major = sanitizeInput(d.Major)
 	d.Rank = sanitizeInput(d.Rank)
 	d.LastGradingDate = sanitizeInput(d.LastGradingDate)
 	d.Role = sanitizeInput(d.Role)
@@ -165,6 +169,21 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		badRequest("Dojo name is too long.")
 		return
 	}
+	if len(formData.Faculty) > 100 {
+		badRequest("Faculty is too long (max 100 characters).")
+		return
+	}
+	if len(formData.Major) > 100 {
+		badRequest("Major is too long (max 100 characters).")
+		return
+	}
+	// Conditional requirement: UI-campus members must record faculty and major.
+	// One shared rule (types.FacultyMajorMissing) covers registration, profile,
+	// and admin updates.
+	if types.FacultyMajorMissing(formData.Dojo, formData.Faculty, formData.Major) {
+		badRequest("Faculty and major are required for " + types.UIDojo + " registrations.")
+		return
+	}
 	if len(formData.MedicalConditions) > 2000 {
 		badRequest("Medical conditions text is too long.")
 		return
@@ -204,6 +223,8 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		PasswordHash:           string(hashedPwd),
 		DateOfBirth:            dateOfBirth,
 		Dojo:                   formData.Dojo,
+		Faculty:                formData.Faculty,
+		Major:                  formData.Major,
 		Rank:                   formData.Rank,
 		LastGradingDate:        lastGradingDate,
 		Role:                   "new", // hard-coded default; client-supplied role is ignored
@@ -305,6 +326,8 @@ func (r *registrar) sendRegistrationEmails(req *http.Request, user *User) {
 					errs[i] = fmt.Errorf("panic during %s send: %v", s.which, rec)
 				}
 			}()
+			// pi-lens-ignore: go-goroutine-map-write
+			// pi-lens-ignore: go-shared-map-write-goroutine
 			errs[i] = r.mailer.Send(ctx, s.msg)
 		}(i, s)
 	}

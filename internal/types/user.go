@@ -21,6 +21,8 @@ type User struct {
 	PasswordHash    string    `bun:"password_hash,notnull"`
 	JoinDate        time.Time `bun:"join_date,notnull,default:current_timestamp"`
 	Dojo            string    `bun:"dojo"`
+	Faculty         string    `bun:"faculty"`
+	Major           string    `bun:"major"`
 	DateOfBirth     time.Time `bun:"date_of_birth"`
 	Rank            string    `bun:"rank"`
 	LastGradingDate time.Time `bun:"last_grading_date"`
@@ -32,4 +34,18 @@ type User struct {
 	MedicalConditions      string `bun:"medical_conditions"`
 	EmergencyContactName   string `bun:"emergency_contact_name"`
 	EmergencyContactNumber string `bun:"emergency_contact_number"`
+}
+
+// UIDojo is the canonical name of the Universitas Indonesia campus dojo.
+// Members of this dojo must record their faculty and major (see
+// FacultyMajorMissing). The spelling matches the university's own branding:
+// it calls itself "Universitas Indonesia" in every language.
+const UIDojo = "Tenkei Universitas Indonesia"
+
+// FacultyMajorMissing reports whether the faculty/major-required rule is
+// violated for this dojo: members of UIDojo must have both fields filled.
+// It is the single source of the rule, shared by registration, self-profile
+// updates, and admin updates.
+func FacultyMajorMissing(dojo, faculty, major string) bool {
+	return dojo == UIDojo && (faculty == "" || major == "")
 }

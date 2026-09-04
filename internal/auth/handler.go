@@ -129,6 +129,10 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid rank"})
 			return
 		}
+		if errors.Is(err, ErrFacultyMajorRequired) {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "faculty and major are required for this dojo"})
+			return
+		}
 		log.Error().Err(err).Int64("user_id", userID).Msg("profile update failed")
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return

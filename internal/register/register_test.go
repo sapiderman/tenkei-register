@@ -14,6 +14,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/internal/turnstile"
+	"github.com/sapiderman/tenkei-register/internal/types"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -202,6 +203,10 @@ func TestHandleSubmission_Validation(t *testing.T) {
 		{name: "InvalidRank", mutate: func(m map[string]any) { m["rank"] = "Black Belt Grandmaster" }, wantErr: "Invalid rank"},
 		{name: "MissingConsent", mutate: func(m map[string]any) { m["consent_datastore"] = false }, wantErr: "consent to data storage"},
 		{name: "DojoTooLong", mutate: func(m map[string]any) { m["dojo"] = strings.Repeat("a", 256) }, wantErr: "Dojo name is too long"},
+		{name: "FacultyTooLong", mutate: func(m map[string]any) { m["faculty"] = strings.Repeat("a", 101) }, wantErr: "Faculty is too long"},
+		{name: "MajorTooLong", mutate: func(m map[string]any) { m["major"] = strings.Repeat("a", 101) }, wantErr: "Major is too long"},
+		{name: "UIDojoMissingFaculty", mutate: func(m map[string]any) { m["dojo"] = types.UIDojo; m["major"] = "Teknik Elektro" }, wantErr: "Faculty and major are required"},
+		{name: "UIDojoMissingMajor", mutate: func(m map[string]any) { m["dojo"] = types.UIDojo; m["faculty"] = "Fakultas Teknik" }, wantErr: "Faculty and major are required"},
 		{name: "MedicalConditionsTooLong", mutate: func(m map[string]any) { m["medical_conditions"] = strings.Repeat("a", 2001) }, wantErr: "Medical conditions"},
 		{name: "EmergencyNameTooLong", mutate: func(m map[string]any) { m["emergency_contact_name"] = strings.Repeat("a", 256) }, wantErr: "Emergency contact name"},
 		{name: "EmergencyNumberTooLong", mutate: func(m map[string]any) { m["emergency_contact_number"] = "+" + strings.Repeat("1", 20) }, wantErr: "Emergency contact number"},
@@ -310,6 +315,37 @@ func TestHandleSubmission_Success(t *testing.T) {
 	}
 	if resp["error"] != "" {
 		t.Errorf("expected no error field, got %q", resp["error"])
+	}
+}
+
+// TestHandleSubmission_UIDojoStoresFacultyMajor: a UI-campus registration with
+// both fields is stored verbatim; the DB row keeps the canonical dojo value.
+func TestHandleSubmission_UIDojoStoresFacultyMajor(t *testing.T) {
+	reg := newTestRegistrarDB(t)
+	db := reg.db
+	wipeUsers(t, db, "ui-member@example.com", "+628121212121")
+
+	m := validPayloadMap()
+	m["email"] = "ui-member@example.com"
+	m["whatsapp"] = "+628121212121"
+	m["dojo"] = types.UIDojo
+	m["faculty"] = "Fakultas Teknik"
+	m["major"] = "Teknik Elektro"
+
+	w := doJSONRequest(t, reg, marshalJSON(m))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var faculty, major, dojo string
+	err := db.NewRaw(
+		`SELECT faculty, major, dojo FROM users WHERE email = ?`, "ui-member@example.com",
+	).Scan(t.Context(), &faculty, &major, &dojo)
+	if err != nil {
+		t.Fatalf("select stored user: %v", err)
+	}
+	if faculty != "Fakultas Teknik" || major != "Teknik Elektro" || dojo != types.UIDojo {
+		t.Errorf("stored faculty=%q major=%q dojo=%q", faculty, major, dojo)
 	}
 }
 

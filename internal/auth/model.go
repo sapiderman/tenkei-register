@@ -33,6 +33,8 @@ type ProfileResponse struct {
 	Email                  string `json:"email"`
 	WhatsApp               string `json:"whatsapp"`
 	Dojo                   string `json:"dojo"`
+	Faculty                string `json:"faculty,omitempty"`
+	Major                  string `json:"major,omitempty"`
 	Rank                   string `json:"rank"`
 	DateOfBirth            string `json:"date_of_birth,omitempty"`
 	JoinDate               string `json:"join_date"`
@@ -56,6 +58,8 @@ type UpdateProfileRequest struct {
 	WhatsApp               string `json:"whatsapp,omitempty" validate:"omitempty,max=20"`
 	DateOfBirth            string `json:"date_of_birth,omitempty" validate:"omitempty,datetime=2006-01-02"`
 	Dojo                   string `json:"dojo,omitempty" validate:"omitempty,max=255"`
+	Faculty                string `json:"faculty,omitempty" validate:"omitempty,max=100"`
+	Major                  string `json:"major,omitempty" validate:"omitempty,max=100"`
 	Rank                   string `json:"rank,omitempty"`
 	LastGradingDate        string `json:"last_grading_date,omitempty" validate:"omitempty,datetime=2006-01-02"`
 	MedicalConditions      string `json:"medical_conditions,omitempty" validate:"omitempty,max=2000"`

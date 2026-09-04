@@ -64,6 +64,12 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 	if req.Dojo != "" {
 		user.Dojo = req.Dojo
 	}
+	if req.Faculty != "" {
+		user.Faculty = req.Faculty
+	}
+	if req.Major != "" {
+		user.Major = req.Major
+	}
 	if req.Rank != "" {
 		if !allowedRanks[req.Rank] {
 			return ErrInvalidRank
@@ -100,6 +106,13 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 		user.ConsentMarketingEmails = *req.ConsentMarketing
 	}
 
+	// Post-state invariant: a member of the UI campus dojo always carries
+	// faculty and major. Checked after applying req so switching dojo to/from
+	// the campus dojo is judged on the resulting row, not the payload.
+	if types.FacultyMajorMissing(user.Dojo, user.Faculty, user.Major) {
+		return ErrFacultyMajorRequired
+	}
+
 	_, err := db.NewUpdate().
 		Model(user).
 		// Explicit whitelist of the editable columns. Everything else on the
@@ -108,7 +121,7 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 		// credential change that happened after the caller loaded the row.
 		Column(
 			"name", "email", "whatsapp_number",
-			"dojo", "rank", "date_of_birth", "last_grading_date",
+			"dojo", "faculty", "major", "rank", "date_of_birth", "last_grading_date",
 			"medical_conditions", "emergency_contact_name", "emergency_contact_number",
 			"consent_datastore", "consent_marketing",
 		).

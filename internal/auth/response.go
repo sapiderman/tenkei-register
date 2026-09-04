@@ -21,6 +21,8 @@ func ProfileFromUser(user *types.User) ProfileResponse {
 		Email:                  user.Email,
 		WhatsApp:               user.WhatsApp,
 		Dojo:                   user.Dojo,
+		Faculty:                user.Faculty,
+		Major:                  user.Major,
 		Rank:                   user.Rank,
 		DateOfBirth:            dob,
 		JoinDate:               user.JoinDate.Format("2006-01-02"),
