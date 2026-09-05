@@ -93,14 +93,34 @@ func sessionExists(t *testing.T, db *bun.DB, sessionID string) bool {
 	return n > 0
 }
 
-// cleanupRoleTestLeftovers removes any superuser rows leaked from a prior
-// interrupted role-test run. The last-superuser guard's invariant is global,
-// so the lone/race tests must start from a known slate; within the admin test
-// binary every such row carries a role-test email prefix (`role-%@example.com`),
-// so this never touches another package's data.
+// cleanupRoleTestLeftovers makes the last-superuser guard tests hermetic even
+// against a long-lived dev database holding a real superuser account. Leftover
+// test-fixture superusers are deleted; any other superusers are temporarily
+// demoted to admin and restored by t.Cleanup, so the fixtures under test are
+// the only superusers the guard can see. (Without this, the guard correctly
+// allows demoting a fixture — a real superuser still exists — and the
+// lone/race assertions fail.)
 func cleanupRoleTestLeftovers(t *testing.T, db *bun.DB) {
 	t.Helper()
 	if _, err := db.NewRaw(`DELETE FROM users WHERE role = 'superuser' AND email LIKE 'role-%@example.com'`).Exec(t.Context()); err != nil {
 		t.Fatalf("cleanupRoleTestLeftovers: %v", err)
 	}
+
+	var realIDs []int64
+	if err := db.NewRaw(`SELECT id FROM users WHERE role = 'superuser' AND email NOT LIKE 'role-%@example.com'`).Scan(t.Context(), &realIDs); err != nil {
+		t.Fatalf("cleanupRoleTestLeftovers: select real superusers: %v", err)
+	}
+	if len(realIDs) == 0 {
+		return
+	}
+	if _, err := db.NewRaw(`UPDATE users SET role = 'admin' WHERE role = 'superuser' AND email NOT LIKE 'role-%@example.com'`).Exec(t.Context()); err != nil {
+		t.Fatalf("cleanupRoleTestLeftovers: demote real superusers: %v", err)
+	}
+	// t.Context() is already canceled by the time cleanups run.
+	// pi-lens-ignore: go-context-background-handler
+	t.Cleanup(func() {
+		if _, err := db.NewRaw(`UPDATE users SET role = 'superuser' WHERE id IN (?)`, bun.In(realIDs)).Exec(context.Background()); err != nil {
+			t.Errorf("cleanupRoleTestLeftovers: restore real superusers %v: %v", realIDs, err)
+		}
+	})
 }
