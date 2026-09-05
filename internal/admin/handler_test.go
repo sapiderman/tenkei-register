@@ -135,6 +135,36 @@ func TestUpdateMember_AdminEditsNewUser(t *testing.T) {
 	}
 }
 
+// TestUpdateMember_FacultyMajorRule: saving a UI-campus member without
+// faculty/major maps ErrFacultyMajorRequired to a 400 with a clear error.
+func TestUpdateMember_FacultyMajorRule(t *testing.T) {
+	a, r := newAdminMux(t)
+	tid := insertUser(t, a.db, "UI Member", "ui-put@example.com", types.RoleUser)
+	if _, err := a.db.NewRaw(`UPDATE users SET dojo = ? WHERE id = ?`, types.UIDojo, tid).Exec(t.Context()); err != nil {
+		t.Fatalf("set dojo: %v", err)
+	}
+
+	req := withViewer(newReq(http.MethodPut, fmt.Sprintf("/users/%d", tid), `{"name":"No Fields"}`), 1, types.RoleAdmin)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("PUT without faculty/major: got %d, want 400 (body=%s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "faculty and major are required") {
+		t.Errorf("error text: got %s", w.Body.String())
+	}
+
+	// With both fields the same admin edit succeeds.
+	ok := withViewer(newReq(http.MethodPut, fmt.Sprintf("/users/%d", tid),
+		`{"name":"Fixed","faculty":"Fakultas Teknik","major":"Teknik Elektro"}`), 1, types.RoleAdmin)
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, ok)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("PUT with faculty/major: got %d, want 200 (body=%s)", w2.Code, w2.Body.String())
+	}
+}
+
 func TestUpdateMember_SuperuserEditsAdmin(t *testing.T) {
 	a, r := newAdminMux(t)
 	tid := insertUser(t, a.db, "Admin Target", "su-edit@example.com", types.RoleAdmin)

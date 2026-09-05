@@ -89,6 +89,57 @@ func TestDBUpdateUserProfile_BasicUpdate(t *testing.T) {
 	}
 }
 
+// TestDBUpdateUserProfile_FacultyMajorRule covers the shared post-state
+// invariant: members of the UI campus dojo cannot be saved without faculty
+// and major, however the gap arose (registration-era hole, dojo switch, or
+// partial update on an incomplete record).
+func TestDBUpdateUserProfile_FacultyMajorRule(t *testing.T) {
+	db := setupTestDB(t)
+	a := &authenticator{logger: zerolog.Nop(), db: db}
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	uiID := insertTestUser(t, db, "ui-rule@example.com", "+628170000001", string(hash))
+	_, err := db.NewRaw(`UPDATE users SET dojo = ? WHERE id = ?`, types.UIDojo, uiID).Exec(t.Context())
+	if err != nil {
+		t.Fatalf("set dojo: %v", err)
+	}
+
+	// 1. Incomplete UI member: even an unrelated update is rejected.
+	if err := UpdateUserProfile(t.Context(), a.db, uiID, &UpdateProfileRequest{Name: "Blocked"}); err != ErrFacultyMajorRequired {
+		t.Errorf("incomplete UI member: want ErrFacultyMajorRequired, got %v", err)
+	}
+
+	// 2. Filling both fields completes the record and succeeds.
+	if err := UpdateUserProfile(t.Context(), a.db, uiID, &UpdateProfileRequest{Faculty: "Fakultas Teknik", Major: "Teknik Elektro"}); err != nil {
+		t.Fatalf("complete UI member update: %v", err)
+	}
+	u, _ := GetUserByID(t.Context(), a.db, uiID)
+	if u.Faculty != "Fakultas Teknik" || u.Major != "Teknik Elektro" || u.Name != "Test User" {
+		t.Errorf("fields not applied: name=%q faculty=%q major=%q", u.Name, u.Faculty, u.Major)
+	}
+
+	// 3. Complete UI member: unrelated updates pass again.
+	if err := UpdateUserProfile(t.Context(), a.db, uiID, &UpdateProfileRequest{Name: "Renamed"}); err != nil {
+		t.Fatalf("complete member rename: %v", err)
+	}
+
+	// 4. Switching a non-UI member onto the campus dojo without fields: rejected.
+	switchID := insertTestUser(t, db, "ui-switch@example.com", "+628170000002", string(hash))
+	if err := UpdateUserProfile(t.Context(), a.db, switchID, &UpdateProfileRequest{Dojo: types.UIDojo}); err != ErrFacultyMajorRequired {
+		t.Errorf("dojo switch without fields: want ErrFacultyMajorRequired, got %v", err)
+	}
+	if err := UpdateUserProfile(t.Context(), a.db, switchID, &UpdateProfileRequest{Dojo: types.UIDojo, Faculty: "Fakultas Hukum", Major: "Ilmu Hukum"}); err != nil {
+		t.Fatalf("dojo switch with fields: %v", err)
+	}
+
+	// 5. Switching an incomplete UI member away from the campus dojo: allowed.
+	awayID := insertTestUser(t, db, "ui-away@example.com", "+628170000003", string(hash))
+	_, _ = db.NewRaw(`UPDATE users SET dojo = ? WHERE id = ?`, types.UIDojo, awayID).Exec(t.Context())
+	if err := UpdateUserProfile(t.Context(), a.db, awayID, &UpdateProfileRequest{Dojo: "Tenkei Natsu Aikidojo"}); err != nil {
+		t.Errorf("dojo switch away: want nil, got %v", err)
+	}
+}
+
 func TestDBUpdateUserProfile_DuplicateEmail(t *testing.T) {
 	db := setupTestDB(t)
 
