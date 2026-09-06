@@ -23,4 +23,12 @@ var (
 	// ErrFacultyMajorRequired is returned when a save would leave a member
 	// of the UI campus dojo without faculty or major.
 	ErrFacultyMajorRequired = errors.New("faculty and major are required for this dojo")
+
+	// Password reset token states (forgot/reset flow). Deliberately distinct:
+	// the handler maps them to stable 4xx codes the UI can map to "request a
+	// new link". Holding a token already proves it was issued, so the
+	// distinctions leak nothing.
+	ErrResetTokenInvalid = errors.New("password reset token not found or superseded")
+	ErrResetTokenExpired = errors.New("password reset token expired")
+	ErrResetTokenUsed    = errors.New("password reset token already used")
 )

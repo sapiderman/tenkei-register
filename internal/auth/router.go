@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/config"
+	"github.com/sapiderman/tenkei-register/internal/mailer"
 	mymiddleware "github.com/sapiderman/tenkei-register/internal/middleware"
 	"github.com/sapiderman/tenkei-register/internal/turnstile"
 	"github.com/uptrace/bun"
@@ -20,6 +21,7 @@ type authenticator struct {
 	db        *bun.DB
 	verifier  Verifier
 	sessions  SessionStore
+	resetter  PasswordResetter
 	cookies   cookieConfig
 	turnstile *turnstile.Verifier
 }
@@ -70,14 +72,18 @@ func cookieConfigFor(secure bool) cookieConfig {
 	}
 }
 
-// NewRouter mounts the auth routes on the given chi.Router.
-func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validate *validator.Validate, db *bun.DB, cfg *config.Config) {
+// NewRouter mounts the auth routes on the given chi.Router. `mail` is the
+// shared mailer (constructed once in internal.NewHTTPHandler); it feeds the
+// DB-backed PasswordResetter for the forgot/reset-password flow.
+func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validate *validator.Validate, db *bun.DB, cfg *config.Config, mail mailer.Mailer) {
+	sessions := NewDBSessionStore(db)
 	a := &authenticator{
 		logger:    logger.With().Str("module", "auth").Logger(),
 		validate:  validate,
 		db:        db,
 		verifier:  NewBcryptVerifier(db),
-		sessions:  NewDBSessionStore(db),
+		sessions:  sessions,
+		resetter:  NewDBPasswordResetter(db, sessions, mail, logger.With().Str("module", "auth").Logger(), cfg.Server.AppURL),
 		cookies:   cookieConfigFor(cfg.Server.Mode == "production"),
 		turnstile: turnstile.New(cfg.Server.TurnstileSecret, cfg.Server.TurnstileEnabled, logger),
 	}
@@ -85,6 +91,12 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 	r.Route("/v1/auth", func(r chi.Router) {
 		// Public: login (rate-limited to prevent brute force)
 		r.With(mymiddleware.RateLimit(10, 1*time.Minute)).Post("/login", a.handleLogin)
+
+		// Public: forgot/reset password (PRD #24). Forgot is tighter — it
+		// triggers an outbound email per request. Reset has no Turnstile (the
+		// emailed link is the proof of inbox control) but keeps a rate limit.
+		r.With(mymiddleware.RateLimit(5, 1*time.Minute)).Post("/forgot-password", a.handleForgotPassword)
+		r.With(mymiddleware.RateLimit(10, 1*time.Minute)).Post("/reset-password", a.handleResetPassword)
 
 		// Authenticated endpoints: require valid session
 		r.Group(func(r chi.Router) {

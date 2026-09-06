@@ -76,6 +76,19 @@ type PasswordChangeRequest struct {
 	NewPassword     string `json:"new_password" validate:"required,min=8,max=72"` // #nosec G117 — never logged
 }
 
+// ForgotPasswordRequest is the inbound payload for POST /v1/auth/forgot-password.
+type ForgotPasswordRequest struct {
+	Email               string `json:"email" validate:"required,email,max=255"`
+	CfTurnstileResponse string `json:"cf_turnstile_response"` // required by the handler when Turnstile is enabled
+}
+
+// ResetPasswordRequest is the inbound payload for POST /v1/auth/reset-password.
+// NewPassword shares the 8..72 rule with registration and password change.
+type ResetPasswordRequest struct {
+	Token       string `json:"token" validate:"required,max=128"`             // #nosec G117 — never logged
+	NewPassword string `json:"new_password" validate:"required,min=8,max=72"` // #nosec G117 — never logged
+}
+
 // allowedRanks delegates to the shared single source of truth in types.
 var allowedRanks = types.AllowedRanks
 
