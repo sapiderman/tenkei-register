@@ -14,6 +14,7 @@ import (
 	"github.com/sapiderman/tenkei-register/internal/mailer"
 	"github.com/sapiderman/tenkei-register/internal/types"
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/driver/pgdriver"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,7 +24,10 @@ import (
 //   - 10-minute TTL, enforced atomically at consume time.
 //   - Single-use: consumption is a conditional UPDATE ... RETURNING, so two
 //     concurrent submits cannot both win.
-//   - Supersede: a new request deletes the user's previous tokens.
+//   - Supersede: a new request deletes the user's previous tokens; the
+//     partial unique index uq_password_reset_tokens_live_user enforces at
+//     most one live token per user, with a bounded retry in issueToken to
+//     resolve concurrent requests (last request wins).
 type PasswordResetToken struct {
 	bun.BaseModel `bun:"table:password_reset_tokens"`
 
@@ -81,33 +85,63 @@ func (r *DBPasswordResetter) RequestReset(ctx context.Context, identifier string
 		return fmt.Errorf("password reset: user lookup: %w", err)
 	}
 
-	// Supersede first, then insert: a failure in between leaves the user
-	// with no valid token, which the next request self-heals.
-	if _, err := r.db.NewDelete().
-		Model((*PasswordResetToken)(nil)).
-		Where("user_id = ?", user.ID).
-		Exec(ctx); err != nil {
-		return fmt.Errorf("password reset: supersede: %w", err)
-	}
-
-	// generateSessionID is the session token generator (32 random bytes,
-	// hex). Deliberately reused: a reset token is the same class of secret.
-	token, err := generateSessionID()
+	// One live token per user: the DB's partial unique index is the guard,
+	// issueToken handles the concurrent-request contention.
+	token, err := r.issueToken(ctx, user.ID)
 	if err != nil {
-		return fmt.Errorf("password reset: token generation: %w", err)
-	}
-	if _, err := r.db.NewInsert().Model(&PasswordResetToken{
-		TokenHash: hashSessionID(token),
-		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(resetTokenTTL),
-	}).Exec(ctx); err != nil {
-		return fmt.Errorf("password reset: token store: %w", err)
+		return err
 	}
 
 	Audit(ctx, r.db, r.logger, user.ID, "password_reset_requested")
 
 	r.sendResetEmailAsync(ctx, &user, token)
 	return nil
+}
+
+// issueToken supersedes any previous tokens and stores a fresh one. The
+// delete-then-insert pair is not atomic by itself, so the partial unique
+// index (one unconsumed row per user) turns a concurrent request into a
+// 23505 on insert; retrying lets this request's delete remove the winner's
+// row — last request wins, the literal supersede semantics.
+func (r *DBPasswordResetter) issueToken(ctx context.Context, userID int64) (string, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		// Supersede first, then insert: a failure in between leaves the user
+		// with no valid token, which the next request self-heals.
+		if _, err := r.db.NewDelete().
+			Model((*PasswordResetToken)(nil)).
+			Where("user_id = ?", userID).
+			Exec(ctx); err != nil {
+			return "", fmt.Errorf("password reset: supersede: %w", err)
+		}
+
+		// generateSessionID is the session token generator (32 random bytes,
+		// hex). Deliberately reused: a reset token is the same class of secret.
+		token, err := generateSessionID()
+		if err != nil {
+			return "", fmt.Errorf("password reset: token generation: %w", err)
+		}
+		_, err = r.db.NewInsert().Model(&PasswordResetToken{
+			TokenHash: hashSessionID(token),
+			UserID:    userID,
+			ExpiresAt: time.Now().Add(resetTokenTTL),
+		}).Exec(ctx)
+		if err == nil {
+			return token, nil
+		}
+		if !isUniqueViolation(err) {
+			return "", fmt.Errorf("password reset: token store: %w", err)
+		}
+		// A concurrent request won the race; its row dies on the next
+		// iteration's delete and this request retries.
+	}
+	return "", fmt.Errorf("password reset: token store: supersede contention")
+}
+
+// isUniqueViolation reports whether err is a PostgreSQL unique-constraint
+// violation (SQLSTATE 23505).
+func isUniqueViolation(err error) bool {
+	var pgErr pgdriver.Error
+	return errors.As(err, &pgErr) && pgErr.Field('C') == "23505"
 }
 
 // ConfirmReset verifies the token, consumes it atomically, rotates the

@@ -121,9 +121,6 @@ func TestRequestReset_StorePosture(t *testing.T) {
 	h := newResetTestHarness(t)
 	ctx := t.Context()
 	userID := insertTestUser(t, h.db, "reset-a@test.dev", "+62811000001", "$2a$10$oSZtgXPD6IB81wO8lrIbdulYN7cIawVnkgvcgd0InAI/9WSY8XeH6")
-	resetter := h.router // not needed here; use the resetter directly
-
-	_ = resetter
 	r := NewDBPasswordResetter(h.db, NewDBSessionStore(h.db), h.mail, zerolog.Nop(), "https://web.test")
 
 	before := time.Now()
@@ -199,6 +196,58 @@ func TestRequestReset_SupersedeAndUnknownEmail(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if got := h.mail.count(); got != 2 {
 		t.Errorf("emails sent = %d, want 2 (no email for unknown address)", got)
+	}
+}
+
+func TestRequestReset_OneLiveTokenPerUser(t *testing.T) {
+	h := newResetTestHarness(t)
+	ctx := t.Context()
+	userID := insertTestUser(t, h.db, "reset-live@test.dev", "+62811000004", "$2a$10$oSZtgXPD6IB81wO8lrIbdulYN7cIawVnkgvcgd0InAI/9WSY8XeH6")
+	r := NewDBPasswordResetter(h.db, NewDBSessionStore(h.db), h.mail, zerolog.Nop(), "https://web.test")
+
+	if err := r.RequestReset(ctx, "reset-live@test.dev"); err != nil {
+		t.Fatalf("RequestReset: %v", err)
+	}
+
+	// The DB is the guard: a second unconsumed row for the same user must be
+	// rejected — whether it comes from a concurrent request racing past the
+	// delete, manual psql, or a future code path. This is the deterministic
+	// stand-in for the concurrent-request race.
+	_, err := h.db.NewInsert().Model(&PasswordResetToken{
+		TokenHash: hashSessionID("competing-token"),
+		UserID:    userID,
+		ExpiresAt: time.Now().Add(resetTokenTTL),
+	}).Exec(ctx)
+	if err == nil {
+		t.Fatal("second live token inserted: unique index not enforced")
+	}
+	if !isUniqueViolation(err) {
+		t.Fatalf("second insert: got %v, want a 23505 unique violation", err)
+	}
+
+	var live int
+	if err := h.db.NewRaw(`SELECT count(*) FROM password_reset_tokens WHERE user_id = ? AND consumed = FALSE`, userID).Scan(ctx, &live); err != nil {
+		t.Fatalf("count live tokens: %v", err)
+	}
+	if live != 1 {
+		t.Errorf("live token rows = %d, want 1", live)
+	}
+
+	// Consumed rows are outside the partial predicate: once the winner is
+	// consumed, history rows may coexist.
+	if _, err := h.db.NewUpdate().
+		Model((*PasswordResetToken)(nil)).
+		Where("user_id = ?", userID).
+		Set("consumed = TRUE").
+		Exec(ctx); err != nil {
+		t.Fatalf("consume token: %v", err)
+	}
+	if _, err := h.db.NewInsert().Model(&PasswordResetToken{
+		TokenHash: hashSessionID("after-consumption"),
+		UserID:    userID,
+		ExpiresAt: time.Now().Add(resetTokenTTL),
+	}).Exec(ctx); err != nil {
+		t.Fatalf("insert after consumption: %v", err)
 	}
 }
 
