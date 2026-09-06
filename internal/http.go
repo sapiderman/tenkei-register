@@ -46,7 +46,7 @@ func NewHTTPHandler(ctx context.Context, db *database.Database, cfg *config.Conf
 	}
 
 	register.NewRouter(ctx, r, log, validator, db.DB, cfg, mail)
-	auth.NewRouter(ctx, r, log, validator, db.DB, cfg)
+	auth.NewRouter(ctx, r, log, validator, db.DB, cfg, mail)
 	// Admin area reuses the auth session/role middleware; wired once here and
 	// passed in so authn/authz is defined in exactly one place.
 	adminMW := auth.NewMiddleware(auth.NewDBSessionStore(db.DB), cfg.Server.Mode == "production")

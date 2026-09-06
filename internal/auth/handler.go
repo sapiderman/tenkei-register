@@ -256,6 +256,65 @@ func (a *authenticator) handleChangePassword(w http.ResponseWriter, r *http.Requ
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleForgotPassword implements POST /v1/auth/forgot-password. Turnstile
+// gates the request; everything after it returns the same generic 200 for
+// known and unknown emails alike (anti-enumeration posture lives in
+// DBPasswordResetter.RequestReset).
+func (a *authenticator) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req ForgotPasswordRequest
+	if err := server.DecodeAndValidate(w, r, &req, a.validate); err != nil {
+		return // DecodeAndValidate writes the error response
+	}
+
+	// Bot check before any DB or mailer work (mirrors login/registration).
+	if err := a.turnstile.Verify(r, req.CfTurnstileResponse); err != nil {
+		log.Warn().Err(err).Msg("forgot-password turnstile verification failed")
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Security verification failed. Please try again in a few minutes."})
+		return
+	}
+
+	if err := a.resetter.RequestReset(r.Context(), req.Email); err != nil {
+		// Infrastructure failure only — unknown emails return nil. A 500 here
+		// says nothing about whether the address exists.
+		log.Error().Err(err).Str("email", mask(req.Email)).Msg("forgot-password request failed")
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	// Generic response, identical bytes for every email address.
+	server.WriteJSON(w, http.StatusOK, map[string]string{
+		"status":  "ok",
+		"message": "If an account exists for this email, a password reset link has been sent.",
+	})
+}
+
+// handleResetPassword implements POST /v1/auth/reset-password. Token states
+// map to distinct-but-stable 4xx codes the web UI can translate into a
+// "request a new link" state.
+func (a *authenticator) handleResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req ResetPasswordRequest
+	if err := server.DecodeAndValidate(w, r, &req, a.validate); err != nil {
+		return // DecodeAndValidate writes the error response
+	}
+
+	if err := a.resetter.ConfirmReset(r.Context(), req.Token, req.NewPassword); err != nil {
+		switch {
+		case errors.Is(err, ErrResetTokenInvalid):
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid password reset token", "code": "invalid_token"})
+		case errors.Is(err, ErrResetTokenExpired):
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "password reset token expired", "code": "expired_token"})
+		case errors.Is(err, ErrResetTokenUsed):
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "password reset token already used", "code": "used_token"})
+		default:
+			log.Error().Err(err).Msg("password reset failed")
+			server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		}
+		return
+	}
+
+	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
 // mask partially hides sensitive identifiers in logs.
 // "test@example.com" → "t***************m"
 // "+62812345678" → "+**********8"

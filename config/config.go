@@ -35,6 +35,7 @@ type ServerConfig struct {
 	Version           string `mapstructure:"version"`
 	LogLevel          string `mapstructure:"log_level"`
 	XCFBypass         string `mapstructure:"x_cf_bypass"` // need to match with frontend config
+	AppURL            string `mapstructure:"app_url"`     // web base URL used in reset-password email links
 }
 
 type DatabaseConfig struct {
@@ -60,11 +61,12 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "production")
 	viper.SetDefault("server.read_header_timeout", "5s")
-	viper.SetDefault("server.version", "0.0.10-20260905")
+	viper.SetDefault("server.version", "0.0.11-20260906")
 	viper.SetDefault("server.turnstile_enabled", true)
 	// zerolog's default global level is Debug, which logs every SQL statement
 	// in production (queryHook logs at Debug). Default the app to info.
 	viper.SetDefault("server.log_level", "info")
+	viper.SetDefault("server.app_url", "https://www.tenkeiaikidojo.org")
 	viper.SetDefault("mailer.enabled", true)
 	viper.SetDefault("mailer.from", "Tenkei <no-reply@tenkeiaikidojo.org>")
 	viper.SetDefault("mailer.notify_email", "info@tenkeiaikidojo.org")
@@ -93,6 +95,7 @@ func LoadConfig(path string) (*Config, error) {
 	_ = viper.BindEnv("server.mode", "TENKEI_SERVER_MODE")
 	_ = viper.BindEnv("server.turnstile_enabled", "TENKEI_SERVER_TURNSTILE_ENABLED")
 	_ = viper.BindEnv("server.log_level", "TENKEI_SERVER_LOG_LEVEL")
+	_ = viper.BindEnv("server.app_url", "TENKEI_SERVER_APP_URL")
 	_ = viper.BindEnv("mailer.resend_api_key", "TENKEI_RESEND_API_KEY")
 	_ = viper.BindEnv("mailer.enabled", "TENKEI_MAILER_ENABLED")
 	_ = viper.BindEnv("mailer.from", "TENKEI_MAILER_FROM")
