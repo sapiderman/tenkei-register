@@ -59,7 +59,16 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 	}
 	if req.WhatsApp != "" {
 		// WhatsApp is not unique and not a login identifier — no conflict check.
-		user.WhatsApp = req.WhatsApp
+		// Stored in E.164 international format regardless of input shape.
+		whatsapp, err := types.NormalizePhone(req.WhatsApp)
+		if err != nil {
+			return ErrInvalidPhone
+		}
+		// Separator-only input (" - ") normalizes to "", and "" means "no change"
+		// for every other field here. Assigning it would silently wipe the number.
+		if whatsapp != "" {
+			user.WhatsApp = whatsapp
+		}
 	}
 	if req.Dojo != "" {
 		user.Dojo = req.Dojo
@@ -97,7 +106,14 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 		user.EmergencyContactName = req.EmergencyContactName
 	}
 	if req.EmergencyContactNumber != "" {
-		user.EmergencyContactNumber = req.EmergencyContactNumber
+		emergencyNumber, err := types.NormalizePhone(req.EmergencyContactNumber)
+		if err != nil {
+			return ErrInvalidPhone
+		}
+		// Same rule as WhatsApp above: separator-only input is a no-op, not a wipe.
+		if emergencyNumber != "" {
+			user.EmergencyContactNumber = emergencyNumber
+		}
 	}
 	if req.ConsentDataStore != nil {
 		user.ConsentDataStore = *req.ConsentDataStore

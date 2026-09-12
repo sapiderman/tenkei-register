@@ -20,6 +20,12 @@ var (
 	// ErrInvalidRank is returned when rank is not in the allowed list.
 	ErrInvalidRank = errors.New("invalid rank")
 
+	// ErrInvalidPhone is returned when a phone number cannot be normalized
+	// to E.164 ("+628123456789"). Local ("08..."), country-coded ("62...")
+	// and international ("+62...") shapes are all accepted; see
+	// types.NormalizePhone for the exact rule.
+	ErrInvalidPhone = errors.New("invalid phone number")
+
 	// ErrFacultyMajorRequired is returned when a save would leave a member
 	// of the UI campus dojo without faculty or major.
 	ErrFacultyMajorRequired = errors.New("faculty and major are required for this dojo")

@@ -107,6 +107,8 @@ func (a *administrator) handleUpdateMember(w http.ResponseWriter, r *http.Reques
 			server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email already exists."})
 		case errors.Is(err, auth.ErrInvalidRank):
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid rank"})
+		case errors.Is(err, auth.ErrInvalidPhone):
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid phone number; use international format, e.g. +628123456789"})
 		case errors.Is(err, auth.ErrFacultyMajorRequired):
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "faculty and major are required for this dojo"})
 		case errors.Is(err, ErrMemberNotFound):

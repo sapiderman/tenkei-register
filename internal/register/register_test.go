@@ -194,7 +194,8 @@ func TestHandleSubmission_Validation(t *testing.T) {
 		{name: "MissingName", mutate: func(m map[string]any) { m["name"] = "" }, wantErr: "Name is required"},
 		{name: "NameTooLong", mutate: func(m map[string]any) { m["name"] = strings.Repeat("a", 256) }, wantErr: "Name is too long"},
 		{name: "MissingEmail", mutate: func(m map[string]any) { m["email"] = "" }, wantErr: "Email is required"},
-		{name: "WhatsAppTooLong", mutate: func(m map[string]any) { m["whatsapp"] = "+" + strings.Repeat("1", 20) }, wantErr: "WhatsApp number is too long"},
+		{name: "WhatsAppTooLong", mutate: func(m map[string]any) { m["whatsapp"] = "+" + strings.Repeat("1", 20) }, wantErr: "Invalid WhatsApp number"},
+		{name: "WhatsAppInvalidShape", mutate: func(m map[string]any) { m["whatsapp"] = "812345678" }, wantErr: "Invalid WhatsApp number"},
 		{name: "InvalidEmail", mutate: func(m map[string]any) { m["email"] = "not-an-email" }, wantErr: "Invalid email"},
 		{name: "MissingPassword", mutate: func(m map[string]any) { m["password"] = ""; m["password_confirm"] = "" }, wantErr: "Password is required"},
 		{name: "PasswordTooShort", mutate: func(m map[string]any) { m["password"] = "short"; m["password_confirm"] = "short" }, wantErr: "at least 8 characters"},
@@ -209,7 +210,7 @@ func TestHandleSubmission_Validation(t *testing.T) {
 		{name: "UIDojoMissingMajor", mutate: func(m map[string]any) { m["dojo"] = types.UIDojo; m["faculty"] = "Fakultas Teknik" }, wantErr: "Faculty and major are required"},
 		{name: "MedicalConditionsTooLong", mutate: func(m map[string]any) { m["medical_conditions"] = strings.Repeat("a", 2001) }, wantErr: "Medical conditions"},
 		{name: "EmergencyNameTooLong", mutate: func(m map[string]any) { m["emergency_contact_name"] = strings.Repeat("a", 256) }, wantErr: "Emergency contact name"},
-		{name: "EmergencyNumberTooLong", mutate: func(m map[string]any) { m["emergency_contact_number"] = "+" + strings.Repeat("1", 20) }, wantErr: "Emergency contact number"},
+		{name: "EmergencyNumberTooLong", mutate: func(m map[string]any) { m["emergency_contact_number"] = "+" + strings.Repeat("1", 20) }, wantErr: "Invalid emergency contact number"},
 		{name: "InvalidDateOfBirth", mutate: func(m map[string]any) { m["date_of_birth"] = "not-a-date" }, wantErr: "Date of birth"},
 		{name: "InvalidLastGradingDate", mutate: func(m map[string]any) { m["date_of_birth"] = "1990-01-01"; m["last_grading_date"] = "2024/06/01" }, wantErr: "Last grading date"},
 
@@ -425,6 +426,37 @@ func TestHandleSubmission_RoleForcedToNew(t *testing.T) {
 	}
 	if role != "new" {
 		t.Errorf("role: want %q (client role must be ignored), got %q", "new", role)
+	}
+}
+
+// TestHandleSubmission_PhoneNormalizedToE164 verifies the storage standard:
+// local "08..." input is stored as E.164 "+62..." (same for separators).
+func TestHandleSubmission_PhoneNormalizedToE164(t *testing.T) {
+	reg := newTestRegistrarDB(t)
+	db := reg.db
+	wipeUsers(t, db, "e164-test@example.com", "+6281234567890")
+
+	m := validPayloadMap()
+	m["email"] = "e164-test@example.com"
+	m["whatsapp"] = "0812-3456-7890"
+	m["emergency_contact_number"] = "08987654321"
+
+	w := doJSONRequest(t, reg, marshalJSON(m))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var gotWhatsApp, gotEmergency string
+	err := db.NewRaw(`SELECT whatsapp_number, emergency_contact_number FROM users WHERE email = ?`, "e164-test@example.com").
+		Scan(context.Background(), &gotWhatsApp, &gotEmergency)
+	if err != nil {
+		t.Fatalf("fetch phones: %v", err)
+	}
+	if gotWhatsApp != "+6281234567890" {
+		t.Errorf("whatsapp: want +6281234567890, got %q", gotWhatsApp)
+	}
+	if gotEmergency != "+628987654321" {
+		t.Errorf("emergency: want +628987654321, got %q", gotEmergency)
 	}
 }
 
