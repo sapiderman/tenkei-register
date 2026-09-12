@@ -29,9 +29,14 @@ var phoneCleanup = strings.NewReplacer(" ", "", "\u00a0", "", "-", "", ".", "", 
 // E.164 patterns applied to the normalized value. An Indonesian number must fit
 // the dojo's numbering plan — "+62", a subscriber number starting 2-9, and 8–12
 // subscriber digits (10–14 digits total). Any other country code only needs the
-// generic E.164 shape. Keep these in sync with the CHECK constraint on
-// users.whatsapp_number / users.emergency_contact_number: a value the app
-// accepts but the constraint rejects surfaces as a 500, not a 400.
+// generic E.164 shape.
+//
+// These exact patterns are mirrored in the CASE guards of
+// migrations/000007_phone_e164.up.sql — keep them in sync, or the app and the
+// backfill will disagree on what counts as a valid number. A CHECK constraint on
+// users.whatsapp_number / users.emergency_contact_number is planned but not yet
+// added (blocked on the legacy-data count); when it is, it must embed these same
+// regexes, or app-accepted input becomes a DB error (500) instead of a 400.
 var (
 	phoneIDPattern      = regexp.MustCompile(`^\+62[2-9]\d{7,11}$`)
 	phoneGenericPattern = regexp.MustCompile(`^\+[1-9]\d{7,14}$`)
