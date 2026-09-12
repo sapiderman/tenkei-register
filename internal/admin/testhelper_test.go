@@ -119,7 +119,7 @@ func cleanupRoleTestLeftovers(t *testing.T, db *bun.DB) {
 	// t.Context() is already canceled by the time cleanups run.
 	// pi-lens-ignore: go-context-background-handler
 	t.Cleanup(func() {
-		if _, err := db.NewRaw(`UPDATE users SET role = 'superuser' WHERE id IN (?)`, bun.In(realIDs)).Exec(context.Background()); err != nil {
+		if _, err := db.NewRaw(`UPDATE users SET role = 'superuser' WHERE id IN (?)`, bun.List(realIDs)).Exec(context.Background()); err != nil {
 			t.Errorf("cleanupRoleTestLeftovers: restore real superusers %v: %v", realIDs, err)
 		}
 	})

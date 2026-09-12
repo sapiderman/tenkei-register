@@ -128,9 +128,12 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// Optional field: WhatsApp (no longer a login identifier, no longer unique)
-	if formData.WhatsApp != "" && len(formData.WhatsApp) > 20 {
-		badRequest("WhatsApp number is too long.")
+	// Optional field: WhatsApp (no longer a login identifier, no longer unique).
+	// Stored in E.164 international format (+62...) regardless of input shape:
+	// local "08...", country-coded "62..." and "+62..." all normalize to "+62...".
+	whatsapp, err := types.NormalizePhone(formData.WhatsApp)
+	if err != nil {
+		badRequest("Invalid WhatsApp number. Use international format, e.g. +628123456789.")
 		return
 	}
 
@@ -192,8 +195,9 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		badRequest("Emergency contact name is too long.")
 		return
 	}
-	if len(formData.EmergencyContactNumber) > 20 {
-		badRequest("Emergency contact number is too long.")
+	emergencyNumber, err := types.NormalizePhone(formData.EmergencyContactNumber)
+	if err != nil {
+		badRequest("Invalid emergency contact number. Use international format, e.g. +628123456789.")
 		return
 	}
 
@@ -219,7 +223,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	user := User{
 		Name:                   formData.Name,
 		Email:                  formData.Email,
-		WhatsApp:               formData.WhatsApp,
+		WhatsApp:               whatsapp,
 		PasswordHash:           string(hashedPwd),
 		DateOfBirth:            dateOfBirth,
 		Dojo:                   formData.Dojo,
@@ -232,7 +236,7 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		ConsentMarketingEmails: formData.ConsentMarketingEmails,
 		MedicalConditions:      formData.MedicalConditions,
 		EmergencyContactName:   formData.EmergencyContactName,
-		EmergencyContactNumber: formData.EmergencyContactNumber,
+		EmergencyContactNumber: emergencyNumber,
 	}
 
 	// --- Insert into database ---

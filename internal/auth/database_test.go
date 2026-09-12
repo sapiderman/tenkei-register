@@ -178,6 +178,53 @@ func TestDBUpdateUserProfile_DuplicateWhatsApp_NoConflict(t *testing.T) {
 	}
 }
 
+func TestDBUpdateUserProfile_NormalizesPhone(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "e164-profile@example.com", "+628400000001", string(hash))
+
+	a := &authenticator{logger: zerolog.Nop(), db: db}
+
+	// Local "08..." input is stored as E.164 "+62..." (covers both the
+	// self-profile and admin update paths — both go through this function).
+	req := &UpdateProfileRequest{WhatsApp: "08123456789", EmergencyContactNumber: "08987654321"}
+	if err := UpdateUserProfile(t.Context(), a.db, userID, req); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	var gotWA, gotEC string
+	if err := db.NewRaw(`SELECT whatsapp_number, emergency_contact_number FROM users WHERE id = ?`, userID).
+		Scan(t.Context(), &gotWA, &gotEC); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if gotWA != "+628123456789" {
+		t.Errorf("whatsapp: want +628123456789, got %q", gotWA)
+	}
+	if gotEC != "+628987654321" {
+		t.Errorf("emergency: want +628987654321, got %q", gotEC)
+	}
+
+	// Separator-only input normalizes to "", which must be a no-op like an absent
+	// field — not a silent wipe of the stored number.
+	req = &UpdateProfileRequest{WhatsApp: " - ", EmergencyContactNumber: "()"}
+	if err := UpdateUserProfile(t.Context(), a.db, userID, req); err != nil {
+		t.Fatalf("separator-only update: %v", err)
+	}
+	if err := db.NewRaw(`SELECT whatsapp_number, emergency_contact_number FROM users WHERE id = ?`, userID).
+		Scan(t.Context(), &gotWA, &gotEC); err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if gotWA != "+628123456789" || gotEC != "+628987654321" {
+		t.Errorf("separator-only input wiped stored phones: got %q / %q", gotWA, gotEC)
+	}
+
+	// A shape that cannot be normalized is rejected.
+	req = &UpdateProfileRequest{WhatsApp: "not-a-number"}
+	if err := UpdateUserProfile(t.Context(), a.db, userID, req); err != ErrInvalidPhone {
+		t.Errorf("expected ErrInvalidPhone, got %v", err)
+	}
+}
+
 func TestDBUpdateUserProfile_InvalidRank(t *testing.T) {
 	db := setupTestDB(t)
 

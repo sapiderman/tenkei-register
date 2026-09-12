@@ -55,7 +55,7 @@ type UpdateProfileRequest struct {
 	Name                   string `json:"name,omitempty" validate:"omitempty,min=1,max=255"`
 	Email                  string `json:"email,omitempty" validate:"omitempty,email"`
 	CurrentPassword        string `json:"current_password,omitempty" validate:"omitempty,max=72"` // #nosec G117 — write-only, never logged; required only when email changes
-	WhatsApp               string `json:"whatsapp,omitempty" validate:"omitempty,max=20"`
+	WhatsApp               string `json:"whatsapp,omitempty" validate:"omitempty,max=30"`         // 30: E.164 max 16 chars + separator noise, normalized before storage
 	DateOfBirth            string `json:"date_of_birth,omitempty" validate:"omitempty,datetime=2006-01-02"`
 	Dojo                   string `json:"dojo,omitempty" validate:"omitempty,max=255"`
 	Faculty                string `json:"faculty,omitempty" validate:"omitempty,max=100"`

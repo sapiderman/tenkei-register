@@ -129,6 +129,10 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid rank"})
 			return
 		}
+		if errors.Is(err, ErrInvalidPhone) {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid phone number; use international format, e.g. +628123456789"})
+			return
+		}
 		if errors.Is(err, ErrFacultyMajorRequired) {
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "faculty and major are required for this dojo"})
 			return
