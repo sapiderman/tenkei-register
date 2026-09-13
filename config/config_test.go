@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,8 @@ func hideEnv(t *testing.T) {
 		"TENKEI_MAILER_ENABLED",
 		"TENKEI_MAILER_FROM",
 		"TENKEI_MAILER_NOTIFY_EMAIL",
+		"TENKEI_TOTP_ENABLED",
+		"TENKEI_TOTP_ENCRYPTION_KEY",
 	} {
 		t.Setenv(k, "")
 	}
@@ -325,4 +328,121 @@ func TestIsInitialized(t *testing.T) {
 		t.Error("expected true after SetInitialized(true)")
 	}
 	SetInitialized(false)
+}
+
+// baseTotpEnv sets the minimal TOTP env for tests that keep it disabled.
+func baseTotpDisabledEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("TENKEI_TOTP_ENABLED", "false")
+}
+
+func TestLoadConfig_TotpDisabledNoKey_Boots(t *testing.T) {
+	resetViper(t)
+	hideEnv(t)
+	baseTotpDisabledEnv(t)
+	t.Setenv("TENKEI_DATABASE_CONNECTION_STRING", "postgres://user:pass@host/db")
+	t.Setenv("TENKEI_SERVER_X_CF_BYPASS", "test-key")
+	t.Setenv("TENKEI_SERVER_TURNSTILE_ENABLED", "false")
+	t.Setenv("TENKEI_MAILER_ENABLED", "false")
+
+	cfg, err := LoadConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("TOTP disabled without key must boot, got: %v", err)
+	}
+	if cfg.Totp.Enabled {
+		t.Error("totp.enabled: expected false (default)")
+	}
+}
+
+func TestLoadConfig_TotpEnabledWithoutKey_Fails(t *testing.T) {
+	resetViper(t)
+	hideEnv(t)
+	baseTotpDisabledEnv(t) // overridden below
+	t.Setenv("TENKEI_TOTP_ENABLED", "true")
+	t.Setenv("TENKEI_DATABASE_CONNECTION_STRING", "postgres://user:pass@host/db")
+	t.Setenv("TENKEI_SERVER_X_CF_BYPASS", "test-key")
+	t.Setenv("TENKEI_SERVER_TURNSTILE_ENABLED", "false")
+	t.Setenv("TENKEI_MAILER_ENABLED", "false")
+
+	_, err := LoadConfig(t.TempDir())
+	if err == nil {
+		t.Fatal("TOTP enabled with empty key must refuse to boot")
+	}
+	if !strings.Contains(err.Error(), "TENKEI_TOTP_ENCRYPTION_KEY") {
+		t.Errorf("error should name the env var, got: %v", err)
+	}
+}
+
+func TestLoadConfig_TotpEnabledWithBadKey_Fails(t *testing.T) {
+	resetViper(t)
+	hideEnv(t)
+	t.Setenv("TENKEI_TOTP_ENABLED", "true")
+	t.Setenv("TENKEI_TOTP_ENCRYPTION_KEY", "not-base64-and-certainly-not-32-bytes")
+	t.Setenv("TENKEI_DATABASE_CONNECTION_STRING", "postgres://user:pass@host/db")
+	t.Setenv("TENKEI_SERVER_X_CF_BYPASS", "test-key")
+	t.Setenv("TENKEI_SERVER_TURNSTILE_ENABLED", "false")
+	t.Setenv("TENKEI_MAILER_ENABLED", "false")
+
+	if _, err := LoadConfig(t.TempDir()); err == nil {
+		t.Fatal("TOTP enabled with malformed key must refuse to boot")
+	}
+}
+
+func TestLoadConfig_TotpEnabledWithKey_Boots(t *testing.T) {
+	resetViper(t)
+	hideEnv(t)
+	t.Setenv("TENKEI_TOTP_ENABLED", "true")
+	t.Setenv("TENKEI_TOTP_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
+	t.Setenv("TENKEI_DATABASE_CONNECTION_STRING", "postgres://user:pass@host/db")
+	t.Setenv("TENKEI_SERVER_X_CF_BYPASS", "test-key")
+	t.Setenv("TENKEI_SERVER_TURNSTILE_ENABLED", "false")
+	t.Setenv("TENKEI_MAILER_ENABLED", "false")
+
+	cfg, err := LoadConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("TOTP enabled with valid key must boot, got: %v", err)
+	}
+	if !cfg.Totp.Enabled {
+		t.Error("totp.enabled: expected true")
+	}
+}
+
+// TestLoadConfig_TotpKeyRule_BothModes pins the otp-plan.md acceptance
+// criterion: enabled + empty key refuses startup and disabled + empty key
+// boots, in both server modes.
+func TestLoadConfig_TotpKeyRule_BothModes(t *testing.T) {
+	for _, mode := range []string{"production", "development"} {
+		t.Run("enabled+empty-key/"+mode, func(t *testing.T) {
+			resetViper(t)
+			hideEnv(t)
+			t.Setenv("TENKEI_SERVER_MODE", mode)
+			t.Setenv("TENKEI_TOTP_ENABLED", "true")
+			t.Setenv("TENKEI_DATABASE_CONNECTION_STRING", "postgres://user:pass@host/db")
+			t.Setenv("TENKEI_SERVER_X_CF_BYPASS", "test-key")
+			t.Setenv("TENKEI_SERVER_TURNSTILE_ENABLED", "false")
+			t.Setenv("TENKEI_MAILER_ENABLED", "false")
+
+			if _, err := LoadConfig(t.TempDir()); err == nil {
+				t.Fatal("TOTP enabled with empty key must refuse to boot in every mode")
+			}
+		})
+		t.Run("disabled+empty-key/"+mode, func(t *testing.T) {
+			resetViper(t)
+			hideEnv(t)
+			t.Setenv("TENKEI_SERVER_MODE", mode)
+			t.Setenv("TENKEI_TOTP_ENABLED", "false")
+			t.Setenv("TENKEI_DATABASE_CONNECTION_STRING", "postgres://user:pass@host/db")
+			t.Setenv("TENKEI_SERVER_X_CF_BYPASS", "test-key")
+			t.Setenv("TENKEI_SERVER_TURNSTILE_ENABLED", "false")
+			t.Setenv("TENKEI_MAILER_ENABLED", "false")
+
+			cfg, err := LoadConfig(t.TempDir())
+			if err != nil {
+				t.Fatalf("TOTP disabled without key must boot in every mode, got: %v", err)
+			}
+			if cfg.Totp.Enabled {
+				t.Error("totp.enabled: expected false")
+			}
+		})
+	}
 }

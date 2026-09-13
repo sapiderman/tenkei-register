@@ -3,9 +3,9 @@ package auth
 import "context"
 
 // Verifier verifies credentials and returns the authenticated user's ID.
-// Today: BcryptVerifier checks email/WhatsApp + bcrypt password.
-// Future: when 2FA is added, BcryptAnd2FAVerifier decorates BcryptVerifier
-// and returns requires2FA=true for users with TOTP enabled.
+// Today: BcryptVerifier checks email + bcrypt password and returns
+// requires2FA = (TOTP kill switch on) && user.TOTPEnabled. The decorator
+// idea from earlier plans was dropped — one boolean read needed no wrapper.
 type Verifier interface {
 	Verify(ctx context.Context, identifier, password string) (userID int64, requires2FA bool, err error)
 }
@@ -31,6 +31,24 @@ type SessionStore interface {
 	// InvalidateAll destroys every session for a user (forced logout,
 	// password change, security event).
 	InvalidateAll(ctx context.Context, userID int64) error
+
+	// ValidatePending admits only an unexpired, NOT-yet-verified session —
+	// the pending 2FA login state. It is the mirror of Validate (which
+	// admits only verified sessions): normal endpoints reject pending
+	// sessions, the 2FA verify endpoint accepts only them, so a half-
+	// authenticated cookie can reach exactly one endpoint.
+	ValidatePending(ctx context.Context, sessionID string) (userID int64, err error)
+
+	// MarkVerified promotes a pending session to verified and extends its
+	// lifetime to the full session TTL — the single statement that completes
+	// a 2FA login. Returns ErrSessionNotFound when the row is gone, expired,
+	// or already verified (idempotence check is the caller's 401 path).
+	MarkVerified(ctx context.Context, sessionID string) error
+
+	// RecordTOTPFailure increments the failed-code counter on a pending
+	// session and returns the new count, so the verify handler can delete
+	// the row after too many attempts (maxTOTPAttempts).
+	RecordTOTPFailure(ctx context.Context, sessionID string) (attempts int, err error)
 }
 
 // PasswordResetter manages the forgot-password flow.

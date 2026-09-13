@@ -30,6 +30,17 @@ func (s *stubStore) Validate(_ context.Context, _ string) (int64, string, error)
 func (s *stubStore) Invalidate(context.Context, string) error   { return nil }
 func (s *stubStore) InvalidateAll(context.Context, int64) error { return nil }
 
+// Pending-session methods: admin routes never carry pending sessions, so
+// these are unreachable stubs that only satisfy the widened SessionStore
+// interface (otp-plan.md Phase 2).
+func (s *stubStore) ValidatePending(context.Context, string) (int64, error) {
+	return 0, auth.ErrSessionNotFound
+}
+func (s *stubStore) MarkVerified(context.Context, string) error { return nil }
+func (s *stubStore) RecordTOTPFailure(context.Context, string) (int, error) {
+	return 0, auth.ErrSessionNotFound
+}
+
 func newTestRouter(t *testing.T, store auth.SessionStore) http.Handler {
 	t.Helper()
 	r := chi.NewRouter()

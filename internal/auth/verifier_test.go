@@ -15,7 +15,7 @@ func TestBcryptVerifier_ValidCredentials(t *testing.T) {
 	}
 	userID := insertTestUser(t, db, "verifier-test@example.com", "+62811111111", string(hash))
 
-	v := NewBcryptVerifier(db)
+	v := NewBcryptVerifier(db, false)
 	gotID, requires2FA, err := v.Verify(t.Context(), "verifier-test@example.com", "correctpassword")
 	if err != nil {
 		t.Fatalf("Verify() error: %v", err)
@@ -37,7 +37,7 @@ func TestBcryptVerifier_WrongPassword(t *testing.T) {
 	}
 	_ = insertTestUser(t, db, "verifier-wrong@example.com", "+62822222222", string(hash))
 
-	v := NewBcryptVerifier(db)
+	v := NewBcryptVerifier(db, false)
 	gotID, requires2FA, err := v.Verify(t.Context(), "verifier-wrong@example.com", "wrongpassword")
 	if err == nil {
 		t.Fatal("expected error for wrong password, got nil")
@@ -56,7 +56,7 @@ func TestBcryptVerifier_WrongPassword(t *testing.T) {
 func TestBcryptVerifier_NonexistentUser(t *testing.T) {
 	db := setupTestDB(t)
 
-	v := NewBcryptVerifier(db)
+	v := NewBcryptVerifier(db, false)
 	gotID, requires2FA, err := v.Verify(t.Context(), "nonexistent@example.com", "anypassword")
 	if err == nil {
 		t.Fatal("expected error for nonexistent user, got nil")
@@ -82,7 +82,7 @@ func TestBcryptVerifier_LoginByWhatsApp_Rejected(t *testing.T) {
 	}
 	_ = insertTestUser(t, db, "verifier-wa@example.com", "+62833333333", string(hash))
 
-	v := NewBcryptVerifier(db)
+	v := NewBcryptVerifier(db, false)
 	// WhatsApp is no longer a login identifier: a registered number + correct
 	// password must NOT resolve (PRD story 24 — never resolves via WhatsApp).
 	gotID, requires2FA, err := v.Verify(t.Context(), "+62833333333", "correctpassword")
@@ -104,7 +104,7 @@ func TestBcryptVerifier_DatabaseError(t *testing.T) {
 	sqldb := db.DB
 	sqldb.Close()
 
-	v := NewBcryptVerifier(db)
+	v := NewBcryptVerifier(db, false)
 	gotID, requires2FA, err := v.Verify(t.Context(), "verifier-dberr@example.com", "anypassword")
 	if err == nil {
 		t.Fatal("expected error for DB failure, got nil")

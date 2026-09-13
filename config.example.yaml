@@ -9,3 +9,9 @@ server:
 database:
   connection_string: postgres://db_user:db_password@127.0.0.1:5432/tenkei?sslmode=disable
 
+# TOTP 2FA (optional; default off). When enabled, encryption_key is required —
+# generate one with: openssl rand -base64 32
+# totp:
+#   enabled: false
+#   encryption_key: ""   # base64 of exactly 32 bytes
+

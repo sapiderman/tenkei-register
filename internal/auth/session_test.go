@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
@@ -177,5 +178,215 @@ func TestDBSessionStore_ValidateReturnsCurrentRole(t *testing.T) {
 	}
 	if role != "admin" {
 		t.Errorf("role = %q, want %q (join must reflect the new role)", role, "admin")
+	}
+}
+
+// --- Pending (2FA) session primitives — otp-plan.md Phase 2 ---
+
+func TestDBSessionStore_PendingSessionShortTTL(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash := "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ12"
+	userID := insertTestUser(t, db, "session-pending-ttl@example.com", "+62833333331", hash)
+
+	store := NewDBSessionStore(db)
+	sessionID, err := store.Create(t.Context(), userID, false)
+	if err != nil {
+		t.Fatalf("Create(verified=false) error: %v", err)
+	}
+
+	// The row must expire within pendingSessionTTL (with a small clock-margin
+	// allowance), not the full sessionMaxAge. Compared in SQL: pgdriver
+	// cannot Scan a Postgres interval into a Go duration.
+	var shortTTL bool
+	err = db.NewRaw(
+		`SELECT expires_at - NOW() <= ? * interval '1 second' FROM sessions WHERE id = ?`,
+		int64((pendingSessionTTL+30*time.Second).Seconds()), hashSessionID(sessionID),
+	).Scan(t.Context(), &shortTTL)
+	if err != nil {
+		t.Fatalf("read expires_at: %v", err)
+	}
+	if !shortTTL {
+		t.Errorf("pending session must expire within pendingSessionTTL + 30s, not the full sessionMaxAge")
+	}
+}
+
+func TestDBSessionStore_ValidateAndValidatePendingPartition(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash := "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ12"
+	userID := insertTestUser(t, db, "session-partition@example.com", "+62833333332", hash)
+
+	store := NewDBSessionStore(db)
+
+	// Pending session: Validate rejects, ValidatePending admits.
+	pending, err := store.Create(t.Context(), userID, false)
+	if err != nil {
+		t.Fatalf("Create(verified=false): %v", err)
+	}
+	if _, _, err := store.Validate(t.Context(), pending); err != ErrSessionNotFound {
+		t.Errorf("Validate(pending) = %v, want ErrSessionNotFound", err)
+	}
+	if got, err := store.ValidatePending(t.Context(), pending); err != nil || got != userID {
+		t.Errorf("ValidatePending(pending) = (%d, %v), want (%d, nil)", got, err, userID)
+	}
+
+	// Verified session: Validate admits, ValidatePending rejects.
+	verified, err := store.Create(t.Context(), userID, true)
+	if err != nil {
+		t.Fatalf("Create(verified=true): %v", err)
+	}
+	if _, err := store.ValidatePending(t.Context(), verified); err != ErrSessionNotFound {
+		t.Errorf("ValidatePending(verified) = %v, want ErrSessionNotFound", err)
+	}
+	if _, _, err := store.Validate(t.Context(), verified); err != nil {
+		t.Errorf("Validate(verified) = %v, want nil", err)
+	}
+
+	// Unknown session: both reject identically.
+	if _, err := store.ValidatePending(t.Context(), "no-such-session"); err != ErrSessionNotFound {
+		t.Errorf("ValidatePending(unknown) = %v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestDBSessionStore_MarkVerified(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash := "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ12"
+	userID := insertTestUser(t, db, "session-markverified@example.com", "+62833333333", hash)
+
+	store := NewDBSessionStore(db)
+	sessionID, err := store.Create(t.Context(), userID, false)
+	if err != nil {
+		t.Fatalf("Create(verified=false): %v", err)
+	}
+
+	if err := store.MarkVerified(t.Context(), sessionID); err != nil {
+		t.Fatalf("MarkVerified: %v", err)
+	}
+
+	// Promoted: full Validate now works and the expiry was extended well
+	// beyond the pending TTL (compared in SQL: pgdriver cannot Scan an
+	// interval into a Go duration).
+	gotUserID, _, err := store.Validate(t.Context(), sessionID)
+	if err != nil || gotUserID != userID {
+		t.Fatalf("Validate after MarkVerified = (%d, %v), want (%d, nil)", gotUserID, err, userID)
+	}
+	var extended bool
+	if err := db.NewRaw(
+		`SELECT expires_at - NOW() > ? * interval '1 second' FROM sessions WHERE id = ?`,
+		int64((pendingSessionTTL+time.Hour).Seconds()), hashSessionID(sessionID),
+	).Scan(t.Context(), &extended); err != nil {
+		t.Fatalf("read expires_at: %v", err)
+	}
+	if !extended {
+		t.Errorf("expiry after promotion must exceed pendingSessionTTL + 1h (full sessionMaxAge)")
+	}
+
+	// Second promotion: the verified=FALSE guard means zero rows match.
+	if err := store.MarkVerified(t.Context(), sessionID); err != ErrSessionNotFound {
+		t.Errorf("double MarkVerified = %v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestDBSessionStore_MarkVerifiedExpiredPending(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash := "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ12"
+	userID := insertTestUser(t, db, "session-markexp@example.com", "+62833333334", hash)
+
+	store := NewDBSessionStore(db)
+	sessionID, err := store.Create(t.Context(), userID, false)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Expire it out-of-band.
+	if _, err := db.NewRaw(`UPDATE sessions SET expires_at = NOW() - INTERVAL '1 minute' WHERE id = ?`, hashSessionID(sessionID)).
+		Exec(t.Context()); err != nil {
+		t.Fatalf("expire session: %v", err)
+	}
+
+	if err := store.MarkVerified(t.Context(), sessionID); err != ErrSessionNotFound {
+		t.Errorf("MarkVerified(expired) = %v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestDBSessionStore_RecordTOTPFailure(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash := "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ12"
+	userID := insertTestUser(t, db, "session-attempts@example.com", "+62833333335", hash)
+
+	store := NewDBSessionStore(db)
+	sessionID, err := store.Create(t.Context(), userID, false)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	for want := 1; want <= 3; want++ {
+		got, err := store.RecordTOTPFailure(t.Context(), sessionID)
+		if err != nil {
+			t.Fatalf("RecordTOTPFailure #%d: %v", want, err)
+		}
+		if got != want {
+			t.Errorf("attempt #%d reported %d, want %d", want, got, want)
+		}
+	}
+
+	// A verified session (or any nonexistent row) cannot be counted.
+	verified, err := store.Create(t.Context(), userID, true)
+	if err != nil {
+		t.Fatalf("Create verified: %v", err)
+	}
+	if _, err := store.RecordTOTPFailure(t.Context(), verified); err != ErrSessionNotFound {
+		t.Errorf("RecordTOTPFailure(verified) = %v, want ErrSessionNotFound", err)
+	}
+}
+
+func TestDBSessionStore_MarkVerifiedConcurrent(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash := "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ12"
+	userID := insertTestUser(t, db, "session-concurrent@example.com", "+62833333336", hash)
+
+	store := NewDBSessionStore(db)
+	sessionID, err := store.Create(t.Context(), userID, false)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Two concurrent promotions of the same pending session: exactly one
+	// UPDATE may match the verified=FALSE row; the loser gets ErrSessionNotFound.
+	const workers = 4
+	results := make(chan error, workers)
+	var wg sync.WaitGroup
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- store.MarkVerified(t.Context(), sessionID)
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	wins := 0
+	for err := range results {
+		switch err {
+		case nil:
+			wins++
+		case ErrSessionNotFound:
+			// loser — fine
+		default:
+			t.Fatalf("unexpected error from MarkVerified: %v", err)
+		}
+	}
+	if wins != 1 {
+		t.Errorf("concurrent MarkVerified: %d winners, want exactly 1", wins)
+	}
+
+	// And the session really is promoted exactly once.
+	if _, _, err := store.Validate(t.Context(), sessionID); err != nil {
+		t.Errorf("Validate after concurrent promotion: %v", err)
 	}
 }

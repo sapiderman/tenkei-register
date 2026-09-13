@@ -423,7 +423,7 @@ func TestFullResetFlow_E2E(t *testing.T) {
 		t.Fatalf("reset: got %d (body: %s)", w.Code, w.Body.String())
 	}
 	// 4. Login with the new password succeeds; old password rejected.
-	v := NewBcryptVerifier(h.db)
+	v := NewBcryptVerifier(h.db, false)
 	if _, _, err := v.Verify(ctx, "reset-f@test.dev", "brandnewpw1"); err != nil {
 		t.Errorf("login with new password: %v", err)
 	}

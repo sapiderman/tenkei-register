@@ -13,13 +13,16 @@ import (
 
 // BcryptVerifier authenticates users by email + bcrypt password.
 type BcryptVerifier struct {
-	db *bun.DB
+	db         *bun.DB
+	totpEnable bool // kill switch: when false, requires2FA is always false
 }
 
 // NewBcryptVerifier creates a Verifier that checks credentials against
-// the users table using bcrypt.
-func NewBcryptVerifier(db *bun.DB) Verifier {
-	return &BcryptVerifier{db: db}
+// the users table using bcrypt. totpEnabled is the global TOTP kill switch
+// (cfg.Totp.Enabled): with TOTP off, login is password-only even for
+// accounts with totp_enabled set (incident posture, otp-plan.md).
+func NewBcryptVerifier(db *bun.DB, totpEnabled bool) Verifier {
+	return &BcryptVerifier{db: db, totpEnable: totpEnabled}
 }
 
 // dummyHash is a precomputed bcrypt hash used to equalize login response time
@@ -49,8 +52,10 @@ func (v *BcryptVerifier) Verify(ctx context.Context, identifier, password string
 		return 0, false, ErrInvalidCredentials
 	}
 
-	// 2FA is not yet implemented; always return false for requires2FA.
-	return user.ID, false, nil
+	// 2FA demand: the member has TOTP enrolled AND the kill switch is on.
+	// The login handler then creates an unverified session and answers
+	// 2fa_required (see handleVerify2FA for step 2).
+	return user.ID, v.totpEnable && user.TOTPEnabled, nil
 }
 
 // findUserByEmail looks up a user by email. WhatsApp is deliberately NOT a

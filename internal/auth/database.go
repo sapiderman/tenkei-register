@@ -177,6 +177,22 @@ func UpdateUserPassword(ctx context.Context, db *bun.DB, userID int64, passwordH
 	return err
 }
 
+// AcceptTOTPCounter advances the replay guard to `counter`, succeeding only
+// if the stored counter is strictly lower. Two concurrent submits of the
+// same TOTP code resolve the same counter; exactly one UPDATE matches, the
+// loser is told the code was replayed.
+func AcceptTOTPCounter(ctx context.Context, db *bun.DB, userID, counter int64) (bool, error) {
+	res, err := db.NewRaw(
+		`UPDATE users SET totp_last_counter = ? WHERE id = ? AND totp_last_counter < ?`,
+		counter, userID, counter,
+	).Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("accept totp counter: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // TODO(audit-cleanup): implement opportunistic audit self-cleanup when audit
 // approaches ~50k rows — reltuples gate → keep-newest-N DELETE → Warn log
 // (event=table_cleanup) + Audit{action:"cleanup"}. Deferred (YAGNI); full

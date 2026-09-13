@@ -11,6 +11,7 @@ import (
 	"github.com/sapiderman/tenkei-register/config"
 	"github.com/sapiderman/tenkei-register/internal/mailer"
 	mymiddleware "github.com/sapiderman/tenkei-register/internal/middleware"
+	"github.com/sapiderman/tenkei-register/internal/totp"
 	"github.com/sapiderman/tenkei-register/internal/turnstile"
 	"github.com/uptrace/bun"
 )
@@ -24,6 +25,10 @@ type authenticator struct {
 	resetter  PasswordResetter
 	cookies   cookieConfig
 	turnstile *turnstile.Verifier
+
+	// totpKey decrypts users.totp_secret (nil when TOTP is disabled — the
+	// verify route is then not mounted at all). See otp-plan.md.
+	totpKey []byte
 }
 
 // Middleware exposes the session and role middleware bound to an
@@ -45,6 +50,12 @@ func NewMiddleware(sessions SessionStore, secure bool) *Middleware {
 // SessionRequired is the authentication middleware (see sessionRequired).
 func (m *Middleware) SessionRequired(next http.Handler) http.Handler {
 	return m.a.sessionRequired(next)
+}
+
+// PendingSessionRequired is the 2FA-step-2 middleware: it admits ONLY pending
+// (unverified) sessions (see pendingSessionRequired).
+func (m *Middleware) PendingSessionRequired(next http.Handler) http.Handler {
+	return m.a.pendingSessionRequired(next)
 }
 
 // RoleRequired returns the authorization middleware admitting level >= min.
@@ -77,20 +88,45 @@ func cookieConfigFor(secure bool) cookieConfig {
 // DB-backed PasswordResetter for the forgot/reset-password flow.
 func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validate *validator.Validate, db *bun.DB, cfg *config.Config, mail mailer.Mailer) {
 	sessions := NewDBSessionStore(db)
+
+	// TOTP wiring: config already refused to boot when enabled + unusable
+	// key, so the parse failure here is unreachable — handled defensively by
+	// degrading to password-only (no 2FA demand, no 2FA routes) instead of
+	// arming 2FA against a nil key.
+	var totpKey []byte
+	totpEnabled := false
+	if cfg.Totp.Enabled {
+		var err error
+		if totpKey, err = totp.ParseKey(cfg.Totp.EncryptionKey); err != nil {
+			logger.Error().Err(err).Msg("TOTP enabled but key unusable — 2FA routes not mounted, login stays password-only")
+		} else {
+			totpEnabled = true
+		}
+	}
+
 	a := &authenticator{
 		logger:    logger.With().Str("module", "auth").Logger(),
 		validate:  validate,
 		db:        db,
-		verifier:  NewBcryptVerifier(db),
+		verifier:  NewBcryptVerifier(db, totpEnabled),
 		sessions:  sessions,
 		resetter:  NewDBPasswordResetter(db, sessions, mail, logger.With().Str("module", "auth").Logger(), cfg.Server.AppURL),
 		cookies:   cookieConfigFor(cfg.Server.Mode == "production"),
 		turnstile: turnstile.New(cfg.Server.TurnstileSecret, cfg.Server.TurnstileEnabled, logger),
+		totpKey:   totpKey,
 	}
 
 	r.Route("/v1/auth", func(r chi.Router) {
 		// Public: login (rate-limited to prevent brute force)
 		r.With(mymiddleware.RateLimit(10, 1*time.Minute)).Post("/login", a.handleLogin)
+
+		// 2FA login step 2: the only endpoint a pending (unverified) session
+		// can reach. Mounted only while the kill switch is on — disabled means
+		// password-only login for everyone and 404 here (otp-plan.md).
+		if totpEnabled {
+			r.With(mymiddleware.RateLimit(10, 1*time.Minute), a.pendingSessionRequired).
+				Post("/2fa/verify", a.handleVerify2FA)
+		}
 
 		// Public: forgot/reset password (PRD #24). Forgot is tighter — it
 		// triggers an outbound email per request. Reset has no Turnstile (the
@@ -106,6 +142,14 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 			r.Post("/password", a.handleChangePassword)
 			r.Post("/logout", a.handleLogout)
 			r.Post("/logout-all", a.handleLogoutAll)
+
+			// Enrollment lifecycle (otp-plan.md Phase 4). Tighter rate limit:
+			// enroll/confirm/disable each touch bcrypt + a secret write.
+			if totpEnabled {
+				r.With(mymiddleware.RateLimit(5, 1*time.Minute)).Post("/2fa/enroll", a.handleEnroll2FA)
+				r.With(mymiddleware.RateLimit(5, 1*time.Minute)).Post("/2fa/confirm", a.handleConfirm2FA)
+				r.With(mymiddleware.RateLimit(5, 1*time.Minute)).Post("/2fa/disable", a.handleDisable2FA)
+			}
 		})
 	})
 }
