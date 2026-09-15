@@ -45,6 +45,7 @@ type ProfileResponse struct {
 	MedicalConditions      string `json:"medical_conditions,omitempty"`
 	EmergencyContactName   string `json:"emergency_contact_name,omitempty"`
 	EmergencyContactNumber string `json:"emergency_contact_number,omitempty"`
+	TOTPEnabled            bool   `json:"totp_enabled"`
 }
 
 // UpdateProfileRequest holds updatable fields only.

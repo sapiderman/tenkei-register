@@ -96,8 +96,15 @@ Login for an enrolled member (second step):
 
 1. `POST /v1/auth/login` → `200 {"status":"2fa_required"}` (session cookie is pending, 5-minute TTL).
 2. `POST /v1/auth/2fa/verify` — body `{"code":"123456"}` → `200 {"status":"ok"}`.
-   Wrong code → `401 {"error":"invalid code"}`; 5 wrong codes → `401 {"error":"too many attempts, login again"}`
-   and the pending session is deleted (fresh login required).
+   Every 401 carries a machine-readable `code` next to the prose `error` — clients
+   branch on `code`, never on the message text:
+   `{"code":"invalid_code","error":"invalid code"}` (wrong code),
+   `{"code":"totp_locked","error":"too many attempts, login again"}`
+   (5 wrong codes; the pending session is deleted, fresh login required), and
+   `{"code":"session_expired","error":"session expired"}` (pending session gone).
+
+   `GET /v1/auth/profile` reports `totp_enabled` so clients can show 2FA status
+   without calling enroll (no secret rotation, no probe side effects).
 
 Disabling:
 

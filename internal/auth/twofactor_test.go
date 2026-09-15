@@ -221,9 +221,18 @@ func Test2FA_FullLoginFlow_E2E(t *testing.T) {
 		t.Fatalf("verify status = %d, body %s", verify.Code, verify.Body.String())
 	}
 
-	// Full session now reaches protected endpoints.
-	if prof := h.get("/v1/auth/profile", cookie); prof.Code != http.StatusOK {
+	// Full session now reaches protected endpoints, and the profile reports
+	// the enrollment (FE contract: totp_enabled replaces the enroll-probe).
+	prof := h.get("/v1/auth/profile", cookie)
+	if prof.Code != http.StatusOK {
 		t.Fatalf("profile after verify = %d, want 200 (body %s)", prof.Code, prof.Body.String())
+	}
+	var p ProfileResponse
+	if err := json.NewDecoder(prof.Body).Decode(&p); err != nil {
+		t.Fatalf("decode profile: %v", err)
+	}
+	if !p.TOTPEnabled {
+		t.Error("totp_enabled: got false, want true for an enrolled member")
 	}
 }
 
@@ -235,7 +244,7 @@ func Test2FA_WrongCodeThenCorrect(t *testing.T) {
 	cookie := sessionCookieOf(t, login)
 
 	wrong := h.post("/v1/auth/2fa/verify", `{"code":"000000"}`, cookie)
-	if wrong.Code != http.StatusUnauthorized || strings.TrimSpace(wrong.Body.String()) != `{"error":"invalid code"}` {
+	if wrong.Code != http.StatusUnauthorized || strings.TrimSpace(wrong.Body.String()) != `{"code":"invalid_code","error":"invalid code"}` {
 		t.Fatalf("wrong code = %d %s, want 401 invalid code", wrong.Code, wrong.Body.String())
 	}
 
@@ -277,9 +286,9 @@ func Test2FA_LockoutAfterFiveFailures(t *testing.T) {
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("failure #%d = %d, want 401", i, rec.Code)
 		}
-		want := `{"error":"invalid code"}`
+		want := `{"code":"invalid_code","error":"invalid code"}`
 		if i == maxTOTPAttempts {
-			want = `{"error":"too many attempts, login again"}`
+			want = `{"code":"totp_locked","error":"too many attempts, login again"}`
 		}
 		if strings.TrimSpace(rec.Body.String()) != want {
 			t.Fatalf("failure #%d body = %s, want %s", i, rec.Body.String(), want)
@@ -668,7 +677,7 @@ func Test2FAVerify_UserVanished_NoOracle(t *testing.T) {
 	a := newFaultAuth(t, h.db, store, h.key)
 
 	rec := postToHandler(t, a.handleVerify2FA, `{"code":"123456"}`, pendingCookie(), userID)
-	if rec.Code != http.StatusUnauthorized || strings.TrimSpace(rec.Body.String()) != `{"error":"invalid code"}` {
+	if rec.Code != http.StatusUnauthorized || strings.TrimSpace(rec.Body.String()) != `{"code":"invalid_code","error":"invalid code"}` {
 		t.Fatalf("vanished user = %d %s, want 401 invalid code", rec.Code, rec.Body.String())
 	}
 }
@@ -684,7 +693,7 @@ func Test2FAVerify_CorruptSecretFailsClosed(t *testing.T) {
 	}
 
 	rec := h.post("/v1/auth/2fa/verify", fmt.Sprintf(`{"code":%q}`, h.code(secret)), cookie)
-	if rec.Code != http.StatusUnauthorized || strings.TrimSpace(rec.Body.String()) != `{"error":"invalid code"}` {
+	if rec.Code != http.StatusUnauthorized || strings.TrimSpace(rec.Body.String()) != `{"code":"invalid_code","error":"invalid code"}` {
 		t.Fatalf("corrupt secret = %d %s, want 401 invalid code", rec.Code, rec.Body.String())
 	}
 }
@@ -721,7 +730,7 @@ func Test2FAVerify_SkewEndToEnd(t *testing.T) {
 	cookie2 := sessionCookieOf(t, h.login("two-fa-skew@test.dev", "correct-horse"))
 	stale := h.codeAt(secret, time.Now().Add(-75*time.Second))
 	rec := h.post("/v1/auth/2fa/verify", fmt.Sprintf(`{"code":%q}`, stale), cookie2)
-	if rec.Code != http.StatusUnauthorized || strings.TrimSpace(rec.Body.String()) != `{"error":"invalid code"}` {
+	if rec.Code != http.StatusUnauthorized || strings.TrimSpace(rec.Body.String()) != `{"code":"invalid_code","error":"invalid code"}` {
 		t.Fatalf("stale code = %d %s, want 401 invalid code", rec.Code, rec.Body.String())
 	}
 }
@@ -747,14 +756,14 @@ func Test2FAVerify_RecordFailureFaults(t *testing.T) {
 			name:        "session gone mid-login clears cookie",
 			store:       &mockSessionStore{validatePendingResult: userID, recordFailErr: ErrSessionNotFound},
 			wantStatus:  http.StatusUnauthorized,
-			wantBody:    `{"error":"session expired"}`,
+			wantBody:    `{"code":"session_expired","error":"session expired"}`,
 			wantCleared: true,
 		},
 		{
 			name:        "lockout invalidation failure still locks",
 			store:       &mockSessionStore{validatePendingResult: userID, recordFailAttempts: maxTOTPAttempts, invalidateErr: errNotSessionNotFound},
 			wantStatus:  http.StatusUnauthorized,
-			wantBody:    `{"error":"too many attempts, login again"}`,
+			wantBody:    `{"code":"totp_locked","error":"too many attempts, login again"}`,
 			wantCleared: true,
 		},
 	}
@@ -799,7 +808,7 @@ func Test2FAVerify_PromotionFaults(t *testing.T) {
 			name:   "session gone mid-promotion clears cookie, never a 500",
 			userID: uidGone, secret: secGone, markErr: ErrSessionNotFound,
 			wantStatus:  http.StatusUnauthorized,
-			wantBody:    `{"error":"session expired"}`,
+			wantBody:    `{"code":"session_expired","error":"session expired"}`,
 			wantCleared: true,
 		},
 	}

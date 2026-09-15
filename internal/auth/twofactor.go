@@ -86,7 +86,7 @@ func (a *authenticator) handleVerify2FA(w http.ResponseWriter, r *http.Request) 
 			// burned, so the member logs in again for a fresh code. The plan's
 			// "second promotion is a no-op" — never a 500.
 			a.clearSessionCookie(w)
-			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired"})
+			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired", "code": "session_expired"})
 			return
 		}
 		// Genuine infra failure — the counter is already burned; the member
@@ -110,7 +110,7 @@ func (a *authenticator) recordVerifyFailure(w http.ResponseWriter, r *http.Reque
 		if errors.Is(err, ErrSessionNotFound) {
 			// Deleted or expired between middleware and here — treat as expired.
 			a.clearSessionCookie(w)
-			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired"})
+			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired", "code": "session_expired"})
 			return
 		}
 		log.Error().Err(err).Int64("user_id", userID).Msg("2fa verify: failure recording failed")
@@ -127,11 +127,11 @@ func (a *authenticator) recordVerifyFailure(w http.ResponseWriter, r *http.Reque
 		a.clearSessionCookie(w)
 		Audit(r.Context(), a.db, a.logger, userID, "2fa_locked_out")
 		log.Warn().Int64("user_id", userID).Msg("2fa verify: too many attempts, session locked")
-		server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "too many attempts, login again"})
+		server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "too many attempts, login again", "code": "totp_locked"})
 		return
 	}
 
-	server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid code"})
+	server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid code", "code": "invalid_code"})
 }
 
 // --- Enrollment lifecycle (otp-plan.md Phase 4) ---

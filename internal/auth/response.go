@@ -33,5 +33,6 @@ func ProfileFromUser(user *types.User) ProfileResponse {
 		MedicalConditions:      user.MedicalConditions,
 		EmergencyContactName:   user.EmergencyContactName,
 		EmergencyContactNumber: user.EmergencyContactNumber,
+		TOTPEnabled:            user.TOTPEnabled,
 	}
 }

@@ -408,6 +408,9 @@ func TestHandleGetProfile_Success(t *testing.T) {
 	if profile.WhatsApp != "+628500000001" {
 		t.Errorf("whatsapp: got %q", profile.WhatsApp)
 	}
+	if profile.TOTPEnabled {
+		t.Error("totp_enabled: got true, want false for a fresh (unenrolled) user")
+	}
 }
 
 func TestHandleGetProfile_NotFound(t *testing.T) {
