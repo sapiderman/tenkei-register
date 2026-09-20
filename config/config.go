@@ -73,7 +73,7 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "production")
 	viper.SetDefault("server.read_header_timeout", "5s")
-	viper.SetDefault("server.version", "0.0.11-20260906")
+	viper.SetDefault("server.version", "0.0.12-20260921")
 	viper.SetDefault("server.turnstile_enabled", true)
 	// zerolog's default global level is Debug, which logs every SQL statement
 	// in production (queryHook logs at Debug). Default the app to info.
