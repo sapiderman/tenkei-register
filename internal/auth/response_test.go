@@ -24,6 +24,7 @@ func TestProfileFromUser_OmitsPasswordHash(t *testing.T) {
 		JoinDate:               now,
 		ConsentDataStore:       true,
 		ConsentMarketingEmails: false,
+		TOTPEnabled:            true,
 	}
 
 	resp := ProfileFromUser(user)
@@ -45,6 +46,12 @@ func TestProfileFromUser_OmitsPasswordHash(t *testing.T) {
 	}
 	if resp.Name != "Test User" {
 		t.Errorf("expected Name 'Test User', got %s", resp.Name)
+	}
+	if !resp.TOTPEnabled {
+		t.Error("expected TOTPEnabled true, got false")
+	}
+	if !strings.Contains(s, `"totp_enabled":true`) {
+		t.Errorf("ProfileResponse JSON must expose totp_enabled: %s", s)
 	}
 }
 

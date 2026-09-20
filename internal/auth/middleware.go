@@ -43,6 +43,36 @@ func (a *authenticator) sessionRequired(next http.Handler) http.Handler {
 	})
 }
 
+// pendingSessionRequired is the 2FA-step-2 middleware: it admits ONLY
+// unverified (pending) sessions, so a half-authenticated login cookie can
+// reach exactly one endpoint — POST /v1/auth/2fa/verify. Verified sessions,
+// expired pendings, and missing cookies all get the same 401 as
+// sessionRequired; the role is left empty because pending routes never
+// authorize by role.
+func (a *authenticator) pendingSessionRequired(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie(sessionCookieName)
+		if err != nil {
+			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "authentication required"})
+			return
+		}
+
+		userID, err := a.sessions.ValidatePending(r.Context(), cookie.Value)
+		if err != nil {
+			if errors.Is(err, ErrSessionNotFound) {
+				a.clearSessionCookie(w)
+				server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired", "code": "session_expired"})
+				return
+			}
+			server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+			return
+		}
+
+		ctx := WithAuth(r.Context(), userID, "")
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
 // roleRequired returns an authorization middleware that admits viewers whose
 // role level is >= minLevel and returns 403 below. It must run after
 // sessionRequired, which guarantees a valid role in the context (and supplies

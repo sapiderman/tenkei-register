@@ -61,11 +61,21 @@ func insertTestUser(t *testing.T, db *bun.DB, email, whatsapp, passwordHash stri
 
 	// context.Background, not t.Context: the test context is already cancelled
 	// by the time t.Cleanup runs (Go 1.24+), which would silently no-op these
-	// DELETEs and leak rows across runs.
+	// DELETEs and leak rows across runs. Failures are reported, never
+	// swallowed: a leaked row poisons the next run, because seeds resolve
+	// their user ID by whatsapp_number and every harness restarts at the
+	// same first number.
 	t.Cleanup(func() {
-		_, _ = db.NewRaw(`DELETE FROM audit WHERE user_id = ?`, id).Exec(context.Background())
-		_, _ = db.NewRaw(`DELETE FROM sessions WHERE user_id = ?`, id).Exec(context.Background())
-		_, _ = db.NewRaw(`DELETE FROM users WHERE id = ?`, id).Exec(context.Background())
+		ctx := context.Background()
+		for _, stmt := range []string{
+			`DELETE FROM audit WHERE user_id = ?`,
+			`DELETE FROM sessions WHERE user_id = ?`,
+			`DELETE FROM users WHERE id = ?`,
+		} {
+			if _, err := db.NewRaw(stmt, id).Exec(ctx); err != nil {
+				t.Errorf("insertTestUser cleanup failed (%s): %v", stmt, err)
+			}
+		}
 	})
 
 	return id

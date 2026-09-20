@@ -3,9 +3,11 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/rs/zerolog/log"
+	"github.com/sapiderman/tenkei-register/internal/totp"
 	"github.com/spf13/viper"
 )
 
@@ -25,6 +27,7 @@ type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
 	Mailer   MailerConfig   `mapstructure:"mailer"`
+	Totp     TotpConfig     `mapstructure:"totp"`
 }
 type ServerConfig struct {
 	Port              string `mapstructure:"port"`
@@ -52,6 +55,15 @@ type MailerConfig struct {
 	NotifyEmail  string `mapstructure:"notify_email"`
 }
 
+// TotpConfig holds the TOTP second-factor settings. Enabled is a plain
+// kill-switch flag (same split as mailer.enabled): disabled → enrollment
+// endpoints 404 and login ignores the per-user totp_enabled flag, so a bad
+// 2FA rollout can be reverted without touching member data.
+type TotpConfig struct {
+	Enabled       bool   `mapstructure:"enabled"`
+	EncryptionKey string `mapstructure:"encryption_key"` // base64, 32 bytes; openssl rand -base64 32
+}
+
 func LoadConfig(path string) (*Config, error) {
 	viper.AddConfigPath(path)
 	viper.SetConfigName("config") // Expects config.yaml, config.json, etc.
@@ -61,7 +73,7 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "production")
 	viper.SetDefault("server.read_header_timeout", "5s")
-	viper.SetDefault("server.version", "0.0.11-20260906")
+	viper.SetDefault("server.version", "0.0.12-20260921")
 	viper.SetDefault("server.turnstile_enabled", true)
 	// zerolog's default global level is Debug, which logs every SQL statement
 	// in production (queryHook logs at Debug). Default the app to info.
@@ -70,11 +82,13 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("mailer.enabled", true)
 	viper.SetDefault("mailer.from", "Tenkei <no-reply@tenkeiaikidojo.org>")
 	viper.SetDefault("mailer.notify_email", "info@tenkeiaikidojo.org")
+	viper.SetDefault("totp.enabled", false)
 
 	// 2. Load Config File
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
-			return nil, err
+		var configFileNotFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &configFileNotFound) {
+			return nil, err // real error (malformed YAML, unreadable file); "file not found" is tolerated below
 		}
 		// Config file not found; ignore error if desired and rely on defaults/env vars
 	}
@@ -100,6 +114,8 @@ func LoadConfig(path string) (*Config, error) {
 	_ = viper.BindEnv("mailer.enabled", "TENKEI_MAILER_ENABLED")
 	_ = viper.BindEnv("mailer.from", "TENKEI_MAILER_FROM")
 	_ = viper.BindEnv("mailer.notify_email", "TENKEI_MAILER_NOTIFY_EMAIL")
+	_ = viper.BindEnv("totp.enabled", "TENKEI_TOTP_ENABLED")
+	_ = viper.BindEnv("totp.encryption_key", "TENKEI_TOTP_ENCRYPTION_KEY")
 
 	// 4. Unmarshal into Struct
 	var cfg Config
@@ -109,18 +125,24 @@ func LoadConfig(path string) (*Config, error) {
 
 	// check turnstile secret is setup properly if turnstile is enabled
 	if cfg.Server.TurnstileEnabled && cfg.Server.TurnstileSecret == "" {
-		return nil, errors.New("server.turnstile_secret_key not configured, check environment ******************************************")
+		return nil, errors.New(
+			"server.turnstile_secret_key not configured, check environment ******************************************",
+		)
 	}
 	if cfg.Server.TurnstileEnabled {
 		log.Info().Msg("Yaay Turnstile secret key is set")
 	}
 
 	if strings.TrimSpace(cfg.Database.ConnectionString) == "" {
-		return nil, errors.New("database.connection_string not configured, check environment *******************************")
+		return nil, errors.New(
+			"database.connection_string not configured, check environment *******************************",
+		)
 	}
 
 	if strings.TrimSpace(cfg.Server.XCFBypass) == "" {
-		return nil, errors.New("server.x_cf_bypass not configured, check environment ***************************************")
+		return nil, errors.New(
+			"server.x_cf_bypass not configured, check environment ***************************************",
+		)
 	}
 
 	// Mailer: fail fast in production when enabled without a key — a silent
@@ -131,6 +153,17 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, errors.New("mailer.resend_api_key not configured (TENKEI_RESEND_API_KEY) — refusing to start with mail enabled **************************")
 		}
 		log.Warn().Msg("mailer enabled but TENKEI_RESEND_API_KEY not set — emails will render to logs, not send")
+	}
+
+	// TOTP: fail fast when enabled without a usable key — same posture as the
+	// Turnstile secret. Validated for shape here (base64 naming 32 bytes) so a
+	// misconfigured deployment refuses to boot instead of failing at the
+	// first member's login. Disabled → no key needed at all.
+	if cfg.Totp.Enabled {
+		if _, err := totp.ParseKey(cfg.Totp.EncryptionKey); err != nil {
+			return nil, fmt.Errorf("totp.encryption_key not usable (TENKEI_TOTP_ENCRYPTION_KEY): %w", err)
+		}
+		log.Info().Msg("TOTP 2FA enabled")
 	}
 
 	SetInitialized(true)

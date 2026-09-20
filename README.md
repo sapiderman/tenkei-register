@@ -77,3 +77,38 @@ or
 
 psql "postgres://db_user:db_password@db:5432/tenkei?sslmode=disable"
 ```
+
+## Two-Factor Auth (TOTP, optional)
+
+Members can protect their account with an authenticator app (Google/Microsoft
+Authenticator, Aegis, 1Password — any RFC 6238 TOTP app). All endpoints are
+JSON under `/v1/auth` and need the session cookie. They return **404** unless
+`TENKEI_TOTP_ENABLED=true`.
+
+Enrollment (authenticated member):
+
+1. `POST /v1/auth/2fa/enroll` — body `{}` → `200 {"secret":"<base32>","otpauth_url":"otpauth://totp/..."}`.
+   Render `otpauth_url` as a QR code. The secret is shown **once**, never again.
+2. `POST /v1/auth/2fa/confirm` — body `{"code":"123456","current_password":"..."}` → `200 {"status":"ok"}`.
+   Arms 2FA for the account. Wrong password → `403`; wrong code → `400`.
+
+Login for an enrolled member (second step):
+
+1. `POST /v1/auth/login` → `200 {"status":"2fa_required"}` (session cookie is pending, 5-minute TTL).
+2. `POST /v1/auth/2fa/verify` — body `{"code":"123456"}` → `200 {"status":"ok"}`.
+   Every 401 carries a machine-readable `code` next to the prose `error` — clients
+   branch on `code`, never on the message text:
+   `{"code":"invalid_code","error":"invalid code"}` (wrong code),
+   `{"code":"totp_locked","error":"too many attempts, login again"}`
+   (5 wrong codes; the pending session is deleted, fresh login required), and
+   `{"code":"session_expired","error":"session expired"}` (pending session gone).
+
+   `GET /v1/auth/profile` reports `totp_enabled` so clients can show 2FA status
+   without calling enroll (no secret rotation, no probe side effects).
+
+Disabling:
+
+1. `POST /v1/auth/2fa/disable` — body `{"code":"123456","current_password":"..."}` → `200 {"status":"ok"}`.
+
+Other codes: enroll while already enabled → `409`; disable while not enabled → `400`;
+confirm without a pending enrollment → `400`.

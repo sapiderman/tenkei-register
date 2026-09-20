@@ -45,9 +45,11 @@ func (s *DBSessionStore) Create(ctx context.Context, userID int64, verified bool
 		// Only the SHA-256 of the token is persisted: a DB read/leak (backup,
 		// SQL injection elsewhere, provider compromise) must not yield usable
 		// session tokens.
-		ID:        hashSessionID(id),
-		UserID:    userID,
-		ExpiresAt: time.Now().Add(sessionMaxAge),
+		ID:     hashSessionID(id),
+		UserID: userID,
+		// Unverified (2FA-pending) sessions live for pendingSessionTTL only;
+		// MarkVerified extends to the full sessionMaxAge on promotion.
+		ExpiresAt: time.Now().Add(sessionTTL(verified)),
 		Verified:  verified,
 	}
 
@@ -107,6 +109,79 @@ func (s *DBSessionStore) InvalidateAll(ctx context.Context, userID int64) error 
 		Where("user_id = ?", userID).
 		Exec(ctx)
 	return err
+}
+
+// sessionTTL returns the lifetime of a newly created session: the full
+// sessionMaxAge once verified, pendingSessionTTL while a TOTP code is still
+// owed.
+func sessionTTL(verified bool) time.Duration {
+	if verified {
+		return sessionMaxAge
+	}
+	return pendingSessionTTL
+}
+
+// ValidatePending admits only unexpired, unverified sessions. Verified
+// sessions are rejected here just as pending ones are rejected by Validate —
+// the two methods partition sessions so the 2FA verify endpoint is the only
+// place a pending cookie works, and a promoted cookie can never be replayed
+// against it.
+func (s *DBSessionStore) ValidatePending(ctx context.Context, sessionID string) (int64, error) {
+	var row struct {
+		UserID int64 `bun:"user_id"`
+	}
+	err := s.db.NewRaw(
+		`SELECT s.user_id
+		   FROM sessions s
+		  WHERE s.id = ? AND s.expires_at > NOW() AND s.verified = FALSE`,
+		hashSessionID(sessionID),
+	).Scan(ctx, &row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrSessionNotFound
+		}
+		return 0, fmt.Errorf("session store: pending validate: %w", err)
+	}
+	return row.UserID, nil
+}
+
+// MarkVerified promotes a pending session and extends its lifetime to the
+// full session TTL in one conditional statement. The verified=FALSE guard
+// makes a concurrent double-promotion impossible: the second UPDATE matches
+// zero rows and returns ErrSessionNotFound.
+func (s *DBSessionStore) MarkVerified(ctx context.Context, sessionID string) error {
+	res, err := s.db.NewRaw(
+		`UPDATE sessions SET verified = TRUE, expires_at = NOW() + ? * INTERVAL '1 microsecond'
+		  WHERE id = ? AND verified = FALSE AND expires_at > NOW()`,
+		sessionMaxAge.Microseconds(), hashSessionID(sessionID),
+	).Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("session store: mark verified: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrSessionNotFound
+	}
+	return nil
+}
+
+// RecordTOTPFailure bumps the failed-code counter on a pending session and
+// returns the new count. The conditional UPDATE cannot resurrect a deleted
+// or expired row: zero rows affected means the session is already gone.
+func (s *DBSessionStore) RecordTOTPFailure(ctx context.Context, sessionID string) (int, error) {
+	var attempts int
+	err := s.db.NewRaw(
+		`UPDATE sessions SET totp_attempts = totp_attempts + 1
+		  WHERE id = ? AND verified = FALSE AND expires_at > NOW()
+		  RETURNING totp_attempts`,
+		hashSessionID(sessionID),
+	).Scan(ctx, &attempts)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrSessionNotFound
+		}
+		return 0, fmt.Errorf("session store: record totp failure: %w", err)
+	}
+	return attempts, nil
 }
 
 // generateSessionID creates a cryptographically random session ID.

@@ -18,6 +18,7 @@
 - **Router**: `chi/v5` + `chi/httprate` (rate limiting)
 - **DB**: PostgreSQL via `uptrace/bun` + `pgdriver`
 - **Auth**: `golang.org/x/crypto/bcrypt` | session cookies (server-side, DB-backed)
+- **2FA**: `github.com/pquerna/otp` (RFC 6238 TOTP — new-dep justification: zero non-stdlib deps, constant-time compare, RFC test vectors; hand-rolling truncation/skew/replay is crypto-adjacent footgun territory)
 - **Validation**: `go-playground/validator/v10`
 - **Logging**: `zerolog` | **Config**: `spf13/viper`
 - **Graceful shutdown**: `golang.org/x/sys/unix` (SIGTERM, SIGINT, SIGQUIT)
@@ -57,6 +58,10 @@
 | POST | `/v1/auth/logout` | XCFBypass + session cookie | Invalidate session |
 | POST | `/v1/auth/logout-all` | XCFBypass + session cookie | Revoke all sessions (compromise response) |
 | POST | `/v1/auth/password` | XCFBypass + session cookie | Change own password (re-verifies current; invalidates other sessions) |
+| POST | `/v1/auth/2fa/verify` | XCFBypass + **pending**-session cookie + rate-limit (10/min/IP) | TOTP login step 2: code check → promotes pending session (only when `TENKEI_TOTP_ENABLED=true`; else 404) |
+| POST | `/v1/auth/2fa/enroll` | XCFBypass + session cookie + rate-limit (5/min/IP) | Start TOTP enrollment; returns secret + `otpauth://` URL once (409 if already enabled) |
+| POST | `/v1/auth/2fa/confirm` | XCFBypass + session cookie + rate-limit (5/min/IP) | Finish enrollment: password + first code → `totp_enabled=true` |
+| POST | `/v1/auth/2fa/disable` | XCFBypass + session cookie + rate-limit (5/min/IP) | Turn 2FA off: password + current code required together |
 | GET | `/v1/admin/users` | XCFBypass + session + role>=2 | List members (viewer-scoped, paginated, summary only) |
 | GET | `/v1/admin/users/:id` | XCFBypass + session + role>=2 | View a member's full profile (admin: new/user only; superuser: anyone) |
 | PUT | `/v1/admin/users/:id` | XCFBypass + session + role>=2 | Edit a member's profile (same whitelist as self-profile; role absent) |
@@ -86,6 +91,18 @@ UPDATE users SET role = 'superuser' WHERE email = 'you@dojo.example';
 ```
 
 That account's next request (the role is read live from the user row) gains superuser capabilities. The last-superuser guard (Phase B5) then prevents demoting the final superuser to zero.
+
+### 2FA (TOTP) notes
+
+Login is two-step for enrolled members: password OK → server answers `{"status":"2fa_required"}` with a **pending** session cookie (5-minute TTL, rejected by every endpoint except `/v1/auth/2fa/verify`) → correct 6-digit code → session promoted to the full 12h. Wrong codes are counted on the session row (5 → session deleted; re-entry costs a fresh password login + Turnstile). Codes are verified with ±1 step (30s) clock-drift tolerance, and each accepted code's step counter is stored monotonically on the user row — a code can never verify twice (replay guard). The TOTP secret is AES-256-GCM encrypted at rest; only the base64 32-byte key lives in config.
+
+**Lost-phone lockout recovery** (no recovery codes by design — v1 YAGNI): same operator-only philosophy as the first superuser. Run against the production database:
+
+```sql
+UPDATE users SET totp_enabled = FALSE, totp_secret = NULL, totp_last_counter = 0 WHERE email = 'member@dojo.example';
+```
+
+**Key rotation**: `TENKEI_TOTP_ENCRYPTION_KEY` has no versioning — replacing it makes every existing enrollment undecryptable, so enrolled members fail verify until they re-enroll. If a rotation goes wrong, `TENKEI_TOTP_ENABLED=false` is the instant password-only fallback; per-member recovery is the lost-phone SQL above.
 
 ## Middleware Stack (in order)
 
@@ -148,6 +165,8 @@ Viper merges: env vars (`TENKEI_` prefix) > `config.yaml` > compiled defaults. `
 | `TENKEI_MAILER_ENABLED` | `true` | Toggle registration emails without touching the API key secret (incident kill-switch). |
 | `TENKEI_MAILER_FROM` | `Tenkei <no-reply@tenkeiaikidojo.org>` | From address for all emails. |
 | `TENKEI_MAILER_NOTIFY_EMAIL` | `info@tenkeiaikidojo.org` | Group address receiving new-registration notices. |
+| `TENKEI_TOTP_ENABLED` | `false` | TOTP 2FA kill switch. `false` → enrollment endpoints 404 and login ignores per-user enrollment (password-only for everyone). `true` requires the encryption key below or the app refuses to boot. |
+| `TENKEI_TOTP_ENCRYPTION_KEY` | — | Base64 of 32 bytes (`openssl rand -base64 32`). AES-256-GCM key for `users.totp_secret` at rest; never stored in the DB. |
 
 ## Local Development
 
@@ -186,7 +205,7 @@ Known baseline: `gosec` `G117` on `password` fields in JSON structs. Acceptable 
 
 ## Interface Seams (for extension)
 
-- **`Verifier`** — Today `BcryptVerifier`; decorator pattern for 2FA (`requires2FA` seam ready)
+- **`Verifier`** — Today `BcryptVerifier` (returns `requires2FA = totpEnabled && user.TOTPEnabled`; the 2FA decorator idea from earlier plans was dropped — one boolean read needed no wrapper)
 - **`SessionStore`** — Today `DBSessionStore`; swap for Redis when scaling. `Validate` returns `(userID, role)` via a sessions⋈users join.
 - **`Mailer`** (`internal/mailer`) — Today `ResendMailer` (resend-go SDK, zero runtime deps); `LogMailer` for local dev; forgot-password will consume the same seam. Swap providers = one new implementation, zero caller changes.
 - **`PasswordResetter`** — Defined in `auth/interfaces.go`, not yet implemented. Seam for forgot-password; the mailer it needs now exists. Authenticated change-password is implemented (`POST /v1/auth/password`).

@@ -45,6 +45,7 @@ type ProfileResponse struct {
 	MedicalConditions      string `json:"medical_conditions,omitempty"`
 	EmergencyContactName   string `json:"emergency_contact_name,omitempty"`
 	EmergencyContactNumber string `json:"emergency_contact_number,omitempty"`
+	TOTPEnabled            bool   `json:"totp_enabled"`
 }
 
 // UpdateProfileRequest holds updatable fields only.
@@ -96,4 +97,15 @@ const (
 	sessionCookieName = "tenkei_session"
 	sessionMaxAge     = 12 * time.Hour
 	sessionIDLength   = 32 // bytes of randomness, hex-encoded to 64 chars
+
+	// pendingSessionTTL bounds the lifetime of an unverified (2FA-pending)
+	// session. Short on purpose: a pending cookie is half a credential — it
+	// can only reach /v1/auth/2fa/verify, and it dies quickly. The full
+	// sessionMaxAge applies only after the code is verified (MarkVerified).
+	pendingSessionTTL = 5 * time.Minute
+
+	// maxTOTPAttempts is the failed-code budget carried on the pending
+	// session row. At the limit the session is deleted: re-entry costs a
+	// fresh password login (plus Turnstile), killing the brute-force path.
+	maxTOTPAttempts = 5
 )

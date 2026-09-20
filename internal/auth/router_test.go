@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"bytes"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/config"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestNewRouter_RoutesRegistered(t *testing.T) {
@@ -123,4 +126,78 @@ func TestNewRouter_ForgotPasswordRateLimit(t *testing.T) {
 	if last != http.StatusTooManyRequests {
 		t.Errorf("6th forgot-password: got %d, want 429 (rate limit 5/min)", last)
 	}
+}
+
+// TestNewRouter_2FARateLimits pins the 2FA route budgets on the real router
+// wiring (otp-plan.md route table): verify 10/min, enroll/confirm/disable
+// 5/min each. Bodies are deliberately empty — nothing but the limiter may
+// produce the 429.
+func TestNewRouter_2FARateLimits(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("correct-horse"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+	insertTestUser(t, db, "rate-limit-2fa@test.dev", "+62877900001", string(hash))
+
+	cfg := &config.Config{
+		Server: config.ServerConfig{Mode: "test"},
+		Totp: config.TotpConfig{
+			Enabled:       true,
+			EncryptionKey: base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x11}, 32)),
+		},
+	}
+	r := chi.NewRouter()
+	NewRouter(t.Context(), r, zerolog.Nop(), validator.New(), db, cfg, nil)
+
+	// The enrollment routes' limiter sits behind sessionRequired, so they
+	// need a real verified session (plain account, no 2FA enrolled).
+	login := httptest.NewRequest(http.MethodPost, "/v1/auth/login",
+		strings.NewReader(`{"identifier":"rate-limit-2fa@test.dev","password":"correct-horse"}`))
+	login.Header.Set("Content-Type", "application/json")
+	loginRec := httptest.NewRecorder()
+	r.ServeHTTP(loginRec, login)
+	if loginRec.Code != http.StatusOK {
+		t.Fatalf("login = %d %s, want 200", loginRec.Code, loginRec.Body.String())
+	}
+	cookie := sessionCookieOf(t, loginRec)
+
+	post := func(path, body string, cookies ...*http.Cookie) int {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+
+	for _, path := range []string{"/v1/auth/2fa/enroll", "/v1/auth/2fa/confirm", "/v1/auth/2fa/disable"} {
+		t.Run(path, func(t *testing.T) {
+			// One limiter per route: five requests fit, the sixth is throttled.
+			for i := 1; i <= 5; i++ {
+				if code := post(path, `{}`, cookie); code == http.StatusTooManyRequests {
+					t.Fatalf("request %d of 5 for %s rate-limited early", i, path)
+				}
+			}
+			if code := post(path, `{}`, cookie); code != http.StatusTooManyRequests {
+				t.Fatalf("6th %s = %d, want 429 (rate limit 5/min)", path, code)
+			}
+		})
+	}
+
+	t.Run("/v1/auth/2fa/verify", func(t *testing.T) {
+		// The limiter runs ahead of the pending-session check, so a
+		// cookie-less request still counts (the middleware answers 401).
+		for i := 1; i <= 10; i++ {
+			if code := post("/v1/auth/2fa/verify", `{}`); code == http.StatusTooManyRequests {
+				t.Fatalf("verify request %d of 10 rate-limited early", i)
+			}
+		}
+		if code := post("/v1/auth/2fa/verify", `{}`); code != http.StatusTooManyRequests {
+			t.Fatalf("11th verify = %d, want 429 (rate limit 10/min)", code)
+		}
+	})
 }

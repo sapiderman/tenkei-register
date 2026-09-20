@@ -34,6 +34,13 @@ type User struct {
 	MedicalConditions      string `bun:"medical_conditions"`
 	EmergencyContactName   string `bun:"emergency_contact_name"`
 	EmergencyContactNumber string `bun:"emergency_contact_number"`
+
+	// TOTP second factor (otp-plan.md). TOTPSecret is AES-256-GCM encrypted
+	// (internal/totp) — never logged, never serialized in any response; the
+	// nullzero tag keeps "never enrolled" as SQL NULL, never ''.
+	TOTPSecret      string `bun:"totp_secret,nullzero"`
+	TOTPEnabled     bool   `bun:"totp_enabled,notnull,default:false"`
+	TOTPLastCounter int64  `bun:"totp_last_counter,notnull,default:0"` // replay guard: highest accepted TOTP step
 }
 
 // UIDojo is the canonical name of the Universitas Indonesia campus dojo.

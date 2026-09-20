@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -9,13 +11,18 @@ import (
 
 // mockSessionStore implements SessionStore for testing.
 type mockSessionStore struct {
-	validateResult   int64
-	validateRole     string
-	validateErr      error
-	invalidateErr    error
-	invalidateAllErr error
-	createErr        error
-	createCalls      int
+	validateResult        int64
+	validateRole          string
+	validateErr           error
+	invalidateErr         error
+	invalidateAllErr      error
+	createErr             error
+	createCalls           int
+	validatePendingResult int64
+	validatePendingErr    error
+	markVerifiedErr       error
+	recordFailAttempts    int
+	recordFailErr         error
 }
 
 func (m *mockSessionStore) Create(ctx context.Context, userID int64, verified bool) (string, error) {
@@ -33,6 +40,20 @@ func (m *mockSessionStore) Invalidate(ctx context.Context, sessionID string) err
 }
 func (m *mockSessionStore) InvalidateAll(ctx context.Context, userID int64) error {
 	return m.invalidateAllErr
+}
+
+func (m *mockSessionStore) ValidatePending(_ context.Context, _ string) (int64, error) {
+	if m.validatePendingErr != nil {
+		return 0, m.validatePendingErr
+	}
+	return m.validatePendingResult, nil
+}
+func (m *mockSessionStore) MarkVerified(_ context.Context, _ string) error { return m.markVerifiedErr }
+func (m *mockSessionStore) RecordTOTPFailure(_ context.Context, _ string) (int, error) {
+	if m.recordFailErr != nil {
+		return 0, m.recordFailErr
+	}
+	return m.recordFailAttempts, nil
 }
 
 func TestSessionRequired_MissingCookie(t *testing.T) {
@@ -252,3 +273,82 @@ func TestClearSessionCookie(t *testing.T) {
 		t.Error("cleared cookie must stay HttpOnly")
 	}
 }
+
+func TestPendingSessionRequired(t *testing.T) {
+	tests := []struct {
+		name        string
+		store       *mockSessionStore
+		cookie      string
+		wantStatus  int
+		wantUserID  int64
+		wantReached bool
+		wantCode    string // expected machine code in the 401 body (2fa-plan Step 2)
+	}{
+		{
+			name:        "no cookie",
+			store:       &mockSessionStore{},
+			wantStatus:  http.StatusUnauthorized,
+			wantReached: false,
+		},
+		{
+			name:        "not a pending session",
+			store:       &mockSessionStore{validatePendingErr: ErrSessionNotFound},
+			cookie:      "tenkei_session=whatever",
+			wantStatus:  http.StatusUnauthorized,
+			wantReached: false,
+			wantCode:    "session_expired",
+		},
+		{
+			name:        "infrastructure failure is 500 not 401",
+			store:       &mockSessionStore{validatePendingErr: errNotSessionNotFound},
+			cookie:      "tenkei_session=whatever",
+			wantStatus:  http.StatusInternalServerError,
+			wantReached: false,
+		},
+		{
+			name:        "valid pending session",
+			store:       &mockSessionStore{validatePendingResult: 42},
+			cookie:      "tenkei_session=whatever",
+			wantStatus:  http.StatusOK,
+			wantUserID:  42,
+			wantReached: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &authenticator{sessions: tt.store, cookies: cookieConfigFor(false)}
+			var reachedWith int64
+			handler := a.pendingSessionRequired(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				reachedWith = UserIDFromContext(r.Context())
+				w.WriteHeader(http.StatusOK)
+			}))
+
+			req := httptest.NewRequest(http.MethodPost, "/v1/auth/2fa/verify", nil)
+			if tt.cookie != "" {
+				req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "whatever"})
+			}
+			w := httptest.NewRecorder()
+			handler.ServeHTTP(w, req)
+
+			if w.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+			if tt.wantCode != "" {
+				var body map[string]string
+				if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+					t.Fatalf("decode 401 body: %v", err)
+				}
+				if body["code"] != tt.wantCode || body["error"] == "" {
+					t.Errorf("body = %v, want code %q plus human error text", body, tt.wantCode)
+				}
+			}
+			if tt.wantReached && reachedWith != tt.wantUserID {
+				t.Errorf("handler saw userID %d, want %d", reachedWith, tt.wantUserID)
+			}
+		})
+	}
+}
+
+// errNotSessionNotFound is a non-ErrSessionNotFound error: the middleware must surface
+// it as 500, never mask an outage as "session expired".
+var errNotSessionNotFound = errors.New("db is down")
