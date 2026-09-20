@@ -18,6 +18,7 @@
 - **Router**: `chi/v5` + `chi/httprate` (rate limiting)
 - **DB**: PostgreSQL via `uptrace/bun` + `pgdriver`
 - **Auth**: `golang.org/x/crypto/bcrypt` | session cookies (server-side, DB-backed)
+- **2FA**: `github.com/pquerna/otp` (RFC 6238 TOTP — new-dep justification: zero non-stdlib deps, constant-time compare, RFC test vectors; hand-rolling truncation/skew/replay is crypto-adjacent footgun territory)
 - **Validation**: `go-playground/validator/v10`
 - **Logging**: `zerolog` | **Config**: `spf13/viper`
 - **Graceful shutdown**: `golang.org/x/sys/unix` (SIGTERM, SIGINT, SIGQUIT)

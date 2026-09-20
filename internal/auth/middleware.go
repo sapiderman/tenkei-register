@@ -61,7 +61,7 @@ func (a *authenticator) pendingSessionRequired(next http.Handler) http.Handler {
 		if err != nil {
 			if errors.Is(err, ErrSessionNotFound) {
 				a.clearSessionCookie(w)
-				server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired"})
+				server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired", "code": "session_expired"})
 				return
 			}
 			server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})

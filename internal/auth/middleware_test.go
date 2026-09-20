@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -281,6 +282,7 @@ func TestPendingSessionRequired(t *testing.T) {
 		wantStatus  int
 		wantUserID  int64
 		wantReached bool
+		wantCode    string // expected machine code in the 401 body (2fa-plan Step 2)
 	}{
 		{
 			name:        "no cookie",
@@ -294,6 +296,7 @@ func TestPendingSessionRequired(t *testing.T) {
 			cookie:      "tenkei_session=whatever",
 			wantStatus:  http.StatusUnauthorized,
 			wantReached: false,
+			wantCode:    "session_expired",
 		},
 		{
 			name:        "infrastructure failure is 500 not 401",
@@ -329,6 +332,15 @@ func TestPendingSessionRequired(t *testing.T) {
 
 			if w.Code != tt.wantStatus {
 				t.Fatalf("status = %d, want %d", w.Code, tt.wantStatus)
+			}
+			if tt.wantCode != "" {
+				var body map[string]string
+				if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+					t.Fatalf("decode 401 body: %v", err)
+				}
+				if body["code"] != tt.wantCode || body["error"] == "" {
+					t.Errorf("body = %v, want code %q plus human error text", body, tt.wantCode)
+				}
 			}
 			if tt.wantReached && reachedWith != tt.wantUserID {
 				t.Errorf("handler saw userID %d, want %d", reachedWith, tt.wantUserID)

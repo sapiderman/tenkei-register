@@ -150,9 +150,7 @@ func LoadConfig(path string) (*Config, error) {
 	// mailer degrades to a log-rendering implementation (see internal/mailer).
 	if cfg.Mailer.Enabled && strings.TrimSpace(cfg.Mailer.ResendAPIKey) == "" {
 		if cfg.Server.Mode == "production" {
-			return nil, errors.New(
-				"mailer.resend_api_key not configured (TENKEI_RESEND_API_KEY) — refusing to start with mail enabled **************************",
-			)
+			return nil, errors.New("mailer.resend_api_key not configured (TENKEI_RESEND_API_KEY) — refusing to start with mail enabled **************************")
 		}
 		log.Warn().Msg("mailer enabled but TENKEI_RESEND_API_KEY not set — emails will render to logs, not send")
 	}

@@ -20,9 +20,9 @@ type Session struct {
 
 // LoginRequest is the inbound payload for POST /v1/auth/login.
 type LoginRequest struct {
-	Identifier          string `json:"identifier"            validate:"required"` // email
-	Password            string `json:"password"              validate:"required"` // #nosec G117 — never logged
-	CfTurnstileResponse string `json:"cf_turnstile_response"`                     // optional here; required by the handler when Turnstile is enabled
+	Identifier          string `json:"identifier" validate:"required"` // email
+	Password            string `json:"password" validate:"required"`   // #nosec G117 — never logged
+	CfTurnstileResponse string `json:"cf_turnstile_response"`          // optional here; required by the handler when Turnstile is enabled
 }
 
 // ProfileResponse is the safe outbound shape for GET /v1/auth/profile.
@@ -53,18 +53,18 @@ type ProfileResponse struct {
 // which prevents mass-assignment attacks at the type level.
 // Pointer booleans distinguish "not sent" (nil) from "set to false".
 type UpdateProfileRequest struct {
-	Name                   string `json:"name,omitempty"                     validate:"omitempty,min=1,max=255"`
-	Email                  string `json:"email,omitempty"                    validate:"omitempty,email"`
-	CurrentPassword        string `json:"current_password,omitempty"         validate:"omitempty,max=72"` // #nosec G117 — write-only, never logged; required only when email changes
-	WhatsApp               string `json:"whatsapp,omitempty"                 validate:"omitempty,max=30"` // 30: E.164 max 16 chars + separator noise, normalized before storage
-	DateOfBirth            string `json:"date_of_birth,omitempty"            validate:"omitempty,datetime=2006-01-02"`
-	Dojo                   string `json:"dojo,omitempty"                     validate:"omitempty,max=255"`
-	Faculty                string `json:"faculty,omitempty"                  validate:"omitempty,max=100"`
-	Major                  string `json:"major,omitempty"                    validate:"omitempty,max=100"`
+	Name                   string `json:"name,omitempty" validate:"omitempty,min=1,max=255"`
+	Email                  string `json:"email,omitempty" validate:"omitempty,email"`
+	CurrentPassword        string `json:"current_password,omitempty" validate:"omitempty,max=72"` // #nosec G117 — write-only, never logged; required only when email changes
+	WhatsApp               string `json:"whatsapp,omitempty" validate:"omitempty,max=30"`         // 30: E.164 max 16 chars + separator noise, normalized before storage
+	DateOfBirth            string `json:"date_of_birth,omitempty" validate:"omitempty,datetime=2006-01-02"`
+	Dojo                   string `json:"dojo,omitempty" validate:"omitempty,max=255"`
+	Faculty                string `json:"faculty,omitempty" validate:"omitempty,max=100"`
+	Major                  string `json:"major,omitempty" validate:"omitempty,max=100"`
 	Rank                   string `json:"rank,omitempty"`
-	LastGradingDate        string `json:"last_grading_date,omitempty"        validate:"omitempty,datetime=2006-01-02"`
-	MedicalConditions      string `json:"medical_conditions,omitempty"       validate:"omitempty,max=2000"`
-	EmergencyContactName   string `json:"emergency_contact_name,omitempty"   validate:"omitempty,max=255"`
+	LastGradingDate        string `json:"last_grading_date,omitempty" validate:"omitempty,datetime=2006-01-02"`
+	MedicalConditions      string `json:"medical_conditions,omitempty" validate:"omitempty,max=2000"`
+	EmergencyContactName   string `json:"emergency_contact_name,omitempty" validate:"omitempty,max=255"`
 	EmergencyContactNumber string `json:"emergency_contact_number,omitempty" validate:"omitempty,max=50"`
 	ConsentDataStore       *bool  `json:"consent_datastore,omitempty"`
 	ConsentMarketing       *bool  `json:"consent_marketing,omitempty"`
@@ -73,20 +73,20 @@ type UpdateProfileRequest struct {
 // PasswordChangeRequest is the inbound payload for POST /v1/auth/password.
 // Both fields are write-only and never logged (AGENTS.md rule 3).
 type PasswordChangeRequest struct {
-	CurrentPassword string `json:"current_password" validate:"required,max=72"`       // #nosec G117 — never logged
-	NewPassword     string `json:"new_password"     validate:"required,min=8,max=72"` // #nosec G117 — never logged
+	CurrentPassword string `json:"current_password" validate:"required,max=72"`   // #nosec G117 — never logged
+	NewPassword     string `json:"new_password" validate:"required,min=8,max=72"` // #nosec G117 — never logged
 }
 
 // ForgotPasswordRequest is the inbound payload for POST /v1/auth/forgot-password.
 type ForgotPasswordRequest struct {
-	Email               string `json:"email"                 validate:"required,email,max=255"`
+	Email               string `json:"email" validate:"required,email,max=255"`
 	CfTurnstileResponse string `json:"cf_turnstile_response"` // required by the handler when Turnstile is enabled
 }
 
 // ResetPasswordRequest is the inbound payload for POST /v1/auth/reset-password.
 // NewPassword shares the 8..72 rule with registration and password change.
 type ResetPasswordRequest struct {
-	Token       string `json:"token"        validate:"required,max=128"`      // #nosec G117 — never logged
+	Token       string `json:"token" validate:"required,max=128"`             // #nosec G117 — never logged
 	NewPassword string `json:"new_password" validate:"required,min=8,max=72"` // #nosec G117 — never logged
 }
 

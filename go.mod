@@ -6,6 +6,7 @@ require (
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/go-chi/httprate v0.15.0
 	github.com/go-playground/validator/v10 v10.30.3
+// RFC 6238 TOTP only; zero non-stdlib deps — justified in AGENTS.md Tech Stack.
 	github.com/pquerna/otp v1.5.0
 	github.com/resend/resend-go/v4 v4.1.0
 	github.com/rs/zerolog v1.35.1

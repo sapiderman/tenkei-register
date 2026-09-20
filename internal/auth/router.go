@@ -52,12 +52,6 @@ func (m *Middleware) SessionRequired(next http.Handler) http.Handler {
 	return m.a.sessionRequired(next)
 }
 
-// PendingSessionRequired is the 2FA-step-2 middleware: it admits ONLY pending
-// (unverified) sessions (see pendingSessionRequired).
-func (m *Middleware) PendingSessionRequired(next http.Handler) http.Handler {
-	return m.a.pendingSessionRequired(next)
-}
-
 // RoleRequired returns the authorization middleware admitting level >= min.
 func (m *Middleware) RoleRequired(min int) func(http.Handler) http.Handler {
 	return m.a.roleRequired(min)
