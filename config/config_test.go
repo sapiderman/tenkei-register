@@ -336,6 +336,29 @@ func baseTotpDisabledEnv(t *testing.T) {
 	t.Setenv("TENKEI_TOTP_ENABLED", "false")
 }
 
+func TestLoadConfig_UnknownKey_Fails(t *testing.T) {
+	resetViper(t)
+	hideEnv(t)
+	dir := t.TempDir()
+	// Regression: env-var-style key names nested under their section (the
+	// 2026-09 2fa/enroll 404) silently fell back to defaults.
+	file := `totp:
+  totp_enabled: true
+  totp_encryption_key: RtaK2OzKxbUKyY4HmC3E4wBA8sTQ7GIF4u6NBfWK5wk=
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(file), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := LoadConfig(dir)
+	if err == nil {
+		t.Fatal("unknown config key must refuse to boot — it silently no-ops otherwise")
+	}
+	if !strings.Contains(err.Error(), "totp_enabled") {
+		t.Errorf("error should name the unused key, got: %v", err)
+	}
+}
+
 func TestLoadConfig_TotpDisabledNoKey_Boots(t *testing.T) {
 	resetViper(t)
 	hideEnv(t)

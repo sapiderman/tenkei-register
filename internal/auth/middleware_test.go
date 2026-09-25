@@ -20,7 +20,7 @@ type mockSessionStore struct {
 	createCalls           int
 	validatePendingResult int64
 	validatePendingErr    error
-	markVerifiedErr       error
+	rotateErr             error
 	recordFailAttempts    int
 	recordFailErr         error
 }
@@ -48,7 +48,12 @@ func (m *mockSessionStore) ValidatePending(_ context.Context, _ string) (int64, 
 	}
 	return m.validatePendingResult, nil
 }
-func (m *mockSessionStore) MarkVerified(_ context.Context, _ string) error { return m.markVerifiedErr }
+func (m *mockSessionStore) RotatePending(_ context.Context, _ string, _ int64) (string, error) {
+	if m.rotateErr != nil {
+		return "", m.rotateErr
+	}
+	return "mock-session-id", nil
+}
 func (m *mockSessionStore) RecordTOTPFailure(_ context.Context, _ string) (int, error) {
 	if m.recordFailErr != nil {
 		return 0, m.recordFailErr

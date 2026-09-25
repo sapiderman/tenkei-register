@@ -39,11 +39,13 @@ type SessionStore interface {
 	// authenticated cookie can reach exactly one endpoint.
 	ValidatePending(ctx context.Context, sessionID string) (userID int64, err error)
 
-	// MarkVerified promotes a pending session to verified and extends its
-	// lifetime to the full session TTL — the single statement that completes
-	// a 2FA login. Returns ErrSessionNotFound when the row is gone, expired,
-	// or already verified (idempotence check is the caller's 401 path).
-	MarkVerified(ctx context.Context, sessionID string) error
+	// RotatePending completes a 2FA login: it deletes the pending session
+	// and mints a fresh verified one for the user, returning the new token.
+	// Rotating the ID on the pending→verified privilege change (OWASP session
+	// management) means the token that lived 5 minutes as half a credential
+	// never becomes a full one. Returns ErrSessionNotFound when the pending
+	// row is gone, expired, or already rotated (the caller's 401 path).
+	RotatePending(ctx context.Context, sessionID string, userID int64) (newSessionID string, err error)
 
 	// RecordTOTPFailure increments the failed-code counter on a pending
 	// session and returns the new count, so the verify handler can delete
