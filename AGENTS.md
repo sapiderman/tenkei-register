@@ -12,6 +12,7 @@
 6. Write unit tests for all new handlers, middleware, and database functions. Aim for 100% coverage on new code.
 7. Read and load the [Kaparthy Guidelines](https://github.com/sapiderman/andrej-karpathy-skills/blob/main/skills/karpathy-guidelines/SKILL.md) before suggesting changes or writing any code. This is your compass for code quality and style.
 8. Minimize DB round-trips and in-process CPU. The app runs on Cloud Run (metered per-request) and the DB on Neon free-tier compute (metered, scale-to-zero). Prefer one batched query over a loop of queries; push filtering/count/pagination into SQL; avoid heavy computes in the request path. See [Resource Constraints](#resource-constraints-free-tier).
+9. **Version bump**: every bugfix / feature / major change must bump the `server.version` default in `config/config.go` — patch / minor / major respectively — and refresh its `YYYYMMDD` date suffix (e.g. `0.0.13-20260926`). Remind the maintainer before the change is merged if it was not bumped.
 
 ## Tech Stack
 
@@ -160,7 +161,7 @@ Viper merges: env vars (`TENKEI_` prefix) > `config.yaml` > compiled defaults. `
 | `TENKEI_SERVER_TURNSTILE_ENABLED` | `true` | Toggle Turnstile verification |
 | `TENKEI_SERVER_READ_HEADER_TIMEOUT` | `5s` | Prevent Slowloris attacks |
 | `TENKEI_SERVER_LOG_LEVEL` | `info` | zerolog global level (debug logs every SQL statement) |
-| `TENKEI_SERVER_VERSION` | `0.0.8-20260818` | Reported in startup log |
+| `TENKEI_SERVER_VERSION` | `0.0.13-20260926` | Reported in startup log. Bump on every change — see AI Rule 9. |
 | `TENKEI_RESEND_API_KEY` | — | Resend API key. **Required in production when the mailer is enabled** — the app refuses to start without it (silent no-mail production is worse). Absent + non-production → LogMailer (emails render to logs). |
 | `TENKEI_MAILER_ENABLED` | `true` | Toggle registration emails without touching the API key secret (incident kill-switch). |
 | `TENKEI_MAILER_FROM` | `Tenkei <no-reply@tenkeiaikidojo.org>` | From address for all emails. |

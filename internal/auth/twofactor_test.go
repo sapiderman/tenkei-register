@@ -215,15 +215,23 @@ func Test2FA_FullLoginFlow_E2E(t *testing.T) {
 		t.Fatalf("profile with pending session = %d, want 401", prof.Code)
 	}
 
-	// Step 2: correct code → session promoted.
+	// Step 2: correct code → session rotated. The verify response carries a
+	// fresh Set-Cookie; the old pending token must be dead on both paths.
 	verify := h.post("/v1/auth/2fa/verify", fmt.Sprintf(`{"code":%q}`, h.code(secret)), cookie)
 	if verify.Code != http.StatusOK {
 		t.Fatalf("verify status = %d, body %s", verify.Code, verify.Body.String())
 	}
+	if got := decodeStatus(t, verify); got != "ok" {
+		t.Fatalf("verify status field = %q, want ok", got)
+	}
+	if prof := h.get("/v1/auth/profile", cookie); prof.Code != http.StatusUnauthorized {
+		t.Fatalf("profile with rotated-away pending cookie = %d, want 401", prof.Code)
+	}
+	full := sessionCookieOf(t, verify)
 
 	// Full session now reaches protected endpoints, and the profile reports
 	// the enrollment (FE contract: totp_enabled replaces the enroll-probe).
-	prof := h.get("/v1/auth/profile", cookie)
+	prof := h.get("/v1/auth/profile", full)
 	if prof.Code != http.StatusOK {
 		t.Fatalf("profile after verify = %d, want 200 (body %s)", prof.Code, prof.Body.String())
 	}
@@ -465,9 +473,11 @@ func Test2FAEnroll_AlreadyEnabled_409(t *testing.T) {
 	// Complete the full 2FA login first — enrollment needs a verified session.
 	cookie := sessionCookieOf(t, h.login("already-enabled@test.dev", "correct-horse"))
 	waitForNextStep(t)
-	if rec := h.post("/v1/auth/2fa/verify", fmt.Sprintf(`{"code":%q}`, h.code(secret)), cookie); rec.Code != http.StatusOK {
-		t.Fatalf("verify before enroll = %d %s, want 200", rec.Code, rec.Body.String())
+	verify := h.post("/v1/auth/2fa/verify", fmt.Sprintf(`{"code":%q}`, h.code(secret)), cookie)
+	if verify.Code != http.StatusOK {
+		t.Fatalf("verify before enroll = %d %s, want 200", verify.Code, verify.Body.String())
 	}
+	cookie = sessionCookieOf(t, verify) // rotation: the pending cookie died at verify
 
 	rec := h.post("/v1/auth/2fa/enroll", `{}`, cookie)
 	if rec.Code != http.StatusConflict {
@@ -539,9 +549,11 @@ func Test2FADisable_RequiresBothFactors(t *testing.T) {
 	login := h.login("disable@test.dev", "correct-horse")
 	cookie := sessionCookieOf(t, login)
 	// Complete 2FA login first — disable needs a verified session.
-	if rec := h.post("/v1/auth/2fa/verify", fmt.Sprintf(`{"code":%q}`, h.code(secret)), cookie); rec.Code != http.StatusOK {
-		t.Fatalf("verify before disable = %d, want 200", rec.Code)
+	verify := h.post("/v1/auth/2fa/verify", fmt.Sprintf(`{"code":%q}`, h.code(secret)), cookie)
+	if verify.Code != http.StatusOK {
+		t.Fatalf("verify before disable = %d, want 200", verify.Code)
 	}
+	cookie = sessionCookieOf(t, verify) // rotation: the pending cookie died at verify
 
 	// Wrong password → 403.
 	rec := h.post("/v1/auth/2fa/disable",
@@ -781,10 +793,10 @@ func Test2FAVerify_RecordFailureFaults(t *testing.T) {
 	}
 }
 
-// Promotion faults use distinct users: the first valid code burns the
+// Rotation faults use distinct users: the first valid code burns the
 // current step's counter, so a second subtest on the same user would be
-// (rightly) rejected as a replay before ever reaching MarkVerified.
-func Test2FAVerify_PromotionFaults(t *testing.T) {
+// (rightly) rejected as a replay before ever reaching RotatePending.
+func Test2FAVerify_RotationFaults(t *testing.T) {
 	h := new2FAHarness(t, true)
 	uidInfra, secInfra := h.seedTOTPUser("two-fa-promo-infra@test.dev")
 	uidGone, secGone := h.seedTOTPUser("two-fa-promo-gone@test.dev")
@@ -793,20 +805,20 @@ func Test2FAVerify_PromotionFaults(t *testing.T) {
 		name        string
 		userID      int64
 		secret      string
-		markErr     error
+		rotateErr   error
 		wantStatus  int
 		wantBody    string
 		wantCleared bool
 	}{
 		{
 			name:   "infra error surfaces as 500, counter already burned",
-			userID: uidInfra, secret: secInfra, markErr: errNotSessionNotFound,
+			userID: uidInfra, secret: secInfra, rotateErr: errNotSessionNotFound,
 			wantStatus: http.StatusInternalServerError,
 			wantBody:   `{"error":"internal server error"}`,
 		},
 		{
-			name:   "session gone mid-promotion clears cookie, never a 500",
-			userID: uidGone, secret: secGone, markErr: ErrSessionNotFound,
+			name:   "session gone mid-rotation clears cookie, never a 500",
+			userID: uidGone, secret: secGone, rotateErr: ErrSessionNotFound,
 			wantStatus:  http.StatusUnauthorized,
 			wantBody:    `{"code":"session_expired","error":"session expired"}`,
 			wantCleared: true,
@@ -814,7 +826,7 @@ func Test2FAVerify_PromotionFaults(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := &mockSessionStore{validatePendingResult: tt.userID, markVerifiedErr: tt.markErr}
+			store := &mockSessionStore{validatePendingResult: tt.userID, rotateErr: tt.rotateErr}
 			a := newFaultAuth(t, h.db, store, h.key)
 			rec := postToHandler(t, a.handleVerify2FA, fmt.Sprintf(`{"code":%q}`, h.code(tt.secret)), pendingCookie(), tt.userID)
 			if rec.Code != tt.wantStatus || strings.TrimSpace(rec.Body.String()) != tt.wantBody {

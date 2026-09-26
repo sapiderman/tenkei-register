@@ -48,7 +48,7 @@ func (s *DBSessionStore) Create(ctx context.Context, userID int64, verified bool
 		ID:     hashSessionID(id),
 		UserID: userID,
 		// Unverified (2FA-pending) sessions live for pendingSessionTTL only;
-		// MarkVerified extends to the full sessionMaxAge on promotion.
+		// RotatePending issues the full sessionMaxAge once the code checks out.
 		ExpiresAt: time.Now().Add(sessionTTL(verified)),
 		Verified:  verified,
 	}
@@ -145,23 +145,38 @@ func (s *DBSessionStore) ValidatePending(ctx context.Context, sessionID string) 
 	return row.UserID, nil
 }
 
-// MarkVerified promotes a pending session and extends its lifetime to the
-// full session TTL in one conditional statement. The verified=FALSE guard
-// makes a concurrent double-promotion impossible: the second UPDATE matches
-// zero rows and returns ErrSessionNotFound.
-func (s *DBSessionStore) MarkVerified(ctx context.Context, sessionID string) error {
+// RotatePending deletes a pending session and mints a fresh verified one
+// for the user, returning the new token — session-ID rotation on the
+// pending→verified privilege change (OWASP session management): the token
+// that lived minutes as half a credential never becomes a full one.
+// One statement, atomically: the verified=FALSE + expiry guards keep the
+// old MarkVerified semantics — a concurrent double-rotation, an expired
+// pending, or a logout in flight deletes nothing, the INSERT selects zero
+// rows, and the caller sees ErrSessionNotFound. No opportunistic purge
+// here: login step 1 ran it seconds ago on the same cadence.
+func (s *DBSessionStore) RotatePending(ctx context.Context, sessionID string, userID int64) (string, error) {
+	newToken, err := generateSessionID()
+	if err != nil {
+		return "", err
+	}
+
 	res, err := s.db.NewRaw(
-		`UPDATE sessions SET verified = TRUE, expires_at = NOW() + ? * INTERVAL '1 microsecond'
-		  WHERE id = ? AND verified = FALSE AND expires_at > NOW()`,
-		sessionMaxAge.Microseconds(), hashSessionID(sessionID),
+		`WITH killed AS (
+		   DELETE FROM sessions WHERE id = ? AND verified = FALSE AND expires_at > NOW() RETURNING id
+		 )
+		 INSERT INTO sessions (id, user_id, verified, expires_at)
+		 SELECT ?, ?, TRUE, NOW() + ? * INTERVAL '1 microsecond'
+		   FROM killed`,
+		hashSessionID(sessionID),
+		hashSessionID(newToken), userID, sessionMaxAge.Microseconds(),
 	).Exec(ctx)
 	if err != nil {
-		return fmt.Errorf("session store: mark verified: %w", err)
+		return "", fmt.Errorf("session store: rotate: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrSessionNotFound
+		return "", ErrSessionNotFound
 	}
-	return nil
+	return newToken, nil
 }
 
 // RecordTOTPFailure bumps the failed-code counter on a pending session and

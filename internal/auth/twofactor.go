@@ -23,8 +23,9 @@ type Verify2FARequest struct {
 }
 
 // handleVerify2FA completes a 2FA login: check the code against the user's
-// secret (with skew), atomically advance the replay counter, and promote the
-// pending session. Every rejection is a 401 with one of two bodies —
+// secret (with skew), atomically advance the replay counter, and rotate the
+// pending session into a fresh verified one (new token, full TTL — the old
+// cookie dies here). Every rejection is a 401 with one of two bodies —
 // "invalid code" or "too many attempts" — regardless of why the code failed,
 // so the endpoint offers no oracle beyond what the client already knows.
 func (a *authenticator) handleVerify2FA(w http.ResponseWriter, r *http.Request) {
@@ -79,23 +80,28 @@ func (a *authenticator) handleVerify2FA(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if err := a.sessions.MarkVerified(r.Context(), cookie.Value); err != nil {
+	newSession, err := a.sessions.RotatePending(r.Context(), cookie.Value, userID)
+	if err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
-			// The pending session is gone or already promoted (logout, expiry,
+			// The pending session is gone or already rotated (logout, expiry,
 			// a concurrent duplicate verify that won): the counter is already
 			// burned, so the member logs in again for a fresh code. The plan's
-			// "second promotion is a no-op" — never a 500.
+			// "second rotation is a no-op" — never a 500.
 			a.clearSessionCookie(w)
 			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "session expired", "code": "session_expired"})
 			return
 		}
 		// Genuine infra failure — the counter is already burned; the member
 		// must log in again and use a fresh code. Loud log, clean 500.
-		log.Error().Err(err).Int64("user_id", userID).Msg("2fa verify: session promotion failed")
+		log.Error().Err(err).Int64("user_id", userID).Msg("2fa verify: session rotation failed")
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
 
+	// The fresh verified token replaces the pending cookie — the response
+	// now carries a new Set-Cookie. Browsers apply it automatically; clients
+	// must never gate on reading it (HttpOnly, Set-Cookie is JS-unreadable).
+	a.setSessionCookie(w, newSession)
 	Audit(r.Context(), a.db, a.logger, userID, "login_2fa")
 	log.Info().Int64("user_id", userID).Msg("2fa login complete")
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})

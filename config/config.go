@@ -73,7 +73,7 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "production")
 	viper.SetDefault("server.read_header_timeout", "5s")
-	viper.SetDefault("server.version", "0.0.12-20260921")
+	viper.SetDefault("server.version", "0.0.13-20260926")
 	viper.SetDefault("server.turnstile_enabled", true)
 	// zerolog's default global level is Debug, which logs every SQL statement
 	// in production (queryHook logs at Debug). Default the app to info.
@@ -117,10 +117,12 @@ func LoadConfig(path string) (*Config, error) {
 	_ = viper.BindEnv("totp.enabled", "TENKEI_TOTP_ENABLED")
 	_ = viper.BindEnv("totp.encryption_key", "TENKEI_TOTP_ENCRYPTION_KEY")
 
-	// 4. Unmarshal into Struct
+	// 4. Unmarshal into Struct. UnmarshalExact refuses unknown keys — a
+	// mistyped yaml key (e.g. totp_enabled instead of totp.enabled) is
+	// otherwise a silent no-op that falls back to defaults (real 404 bug).
 	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return nil, err
+	if err := viper.UnmarshalExact(&cfg); err != nil {
+		return nil, fmt.Errorf("config has unknown keys: %w", err)
 	}
 
 	// check turnstile secret is setup properly if turnstile is enabled

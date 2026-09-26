@@ -36,7 +36,9 @@ func (s *stubStore) InvalidateAll(context.Context, int64) error { return nil }
 func (s *stubStore) ValidatePending(context.Context, string) (int64, error) {
 	return 0, auth.ErrSessionNotFound
 }
-func (s *stubStore) MarkVerified(context.Context, string) error { return nil }
+func (s *stubStore) RotatePending(_ context.Context, _ string, _ int64) (string, error) {
+	return "stub-session", nil
+}
 func (s *stubStore) RecordTOTPFailure(context.Context, string) (int, error) {
 	return 0, auth.ErrSessionNotFound
 }

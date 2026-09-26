@@ -101,7 +101,7 @@ const (
 	// pendingSessionTTL bounds the lifetime of an unverified (2FA-pending)
 	// session. Short on purpose: a pending cookie is half a credential — it
 	// can only reach /v1/auth/2fa/verify, and it dies quickly. The full
-	// sessionMaxAge applies only after the code is verified (MarkVerified).
+	// sessionMaxAge applies only after the code is verified (RotatePending).
 	pendingSessionTTL = 5 * time.Minute
 
 	// maxTOTPAttempts is the failed-code budget carried on the pending

@@ -249,51 +249,63 @@ func TestDBSessionStore_ValidateAndValidatePendingPartition(t *testing.T) {
 	}
 }
 
-func TestDBSessionStore_MarkVerified(t *testing.T) {
+func TestDBSessionStore_RotatePending(t *testing.T) {
 	db := setupTestDB(t)
 
 	hash := "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ12"
-	userID := insertTestUser(t, db, "session-markverified@example.com", "+62833333333", hash)
+	userID := insertTestUser(t, db, "session-rotate@example.com", "+62833333333", hash)
 
 	store := NewDBSessionStore(db)
-	sessionID, err := store.Create(t.Context(), userID, false)
+	pending, err := store.Create(t.Context(), userID, false)
 	if err != nil {
 		t.Fatalf("Create(verified=false): %v", err)
 	}
 
-	if err := store.MarkVerified(t.Context(), sessionID); err != nil {
-		t.Fatalf("MarkVerified: %v", err)
+	rotated, err := store.RotatePending(t.Context(), pending, userID)
+	if err != nil {
+		t.Fatalf("RotatePending: %v", err)
+	}
+	if rotated == pending {
+		t.Fatal("rotation must mint a new token")
 	}
 
-	// Promoted: full Validate now works and the expiry was extended well
-	// beyond the pending TTL (compared in SQL: pgdriver cannot Scan an
-	// interval into a Go duration).
-	gotUserID, _, err := store.Validate(t.Context(), sessionID)
+	// The old pending token is dead on both paths: normal endpoints and the
+	// verify endpoint itself (partitioned Validate/ValidatePending).
+	if _, _, err := store.Validate(t.Context(), pending); err != ErrSessionNotFound {
+		t.Errorf("Validate(old token) = %v, want ErrSessionNotFound", err)
+	}
+	if _, err := store.ValidatePending(t.Context(), pending); err != ErrSessionNotFound {
+		t.Errorf("ValidatePending(old token) = %v, want ErrSessionNotFound", err)
+	}
+
+	// The new token validates and was issued the full sessionMaxAge
+	// (compared in SQL: pgdriver cannot Scan an interval into a Go duration).
+	gotUserID, _, err := store.Validate(t.Context(), rotated)
 	if err != nil || gotUserID != userID {
-		t.Fatalf("Validate after MarkVerified = (%d, %v), want (%d, nil)", gotUserID, err, userID)
+		t.Fatalf("Validate(rotated) = (%d, %v), want (%d, nil)", gotUserID, err, userID)
 	}
 	var extended bool
 	if err := db.NewRaw(
 		`SELECT expires_at - NOW() > ? * interval '1 second' FROM sessions WHERE id = ?`,
-		int64((pendingSessionTTL+time.Hour).Seconds()), hashSessionID(sessionID),
+		int64((pendingSessionTTL+time.Hour).Seconds()), hashSessionID(rotated),
 	).Scan(t.Context(), &extended); err != nil {
 		t.Fatalf("read expires_at: %v", err)
 	}
 	if !extended {
-		t.Errorf("expiry after promotion must exceed pendingSessionTTL + 1h (full sessionMaxAge)")
+		t.Errorf("expiry after rotation must exceed pendingSessionTTL + 1h (full sessionMaxAge)")
 	}
 
-	// Second promotion: the verified=FALSE guard means zero rows match.
-	if err := store.MarkVerified(t.Context(), sessionID); err != ErrSessionNotFound {
-		t.Errorf("double MarkVerified = %v, want ErrSessionNotFound", err)
+	// Second rotation of the same pending token: nothing left to delete.
+	if _, err := store.RotatePending(t.Context(), pending, userID); err != ErrSessionNotFound {
+		t.Errorf("double RotatePending = %v, want ErrSessionNotFound", err)
 	}
 }
 
-func TestDBSessionStore_MarkVerifiedExpiredPending(t *testing.T) {
+func TestDBSessionStore_RotatePendingExpiredPending(t *testing.T) {
 	db := setupTestDB(t)
 
 	hash := "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ12"
-	userID := insertTestUser(t, db, "session-markexp@example.com", "+62833333334", hash)
+	userID := insertTestUser(t, db, "session-rotateexp@example.com", "+62833333334", hash)
 
 	store := NewDBSessionStore(db)
 	sessionID, err := store.Create(t.Context(), userID, false)
@@ -306,8 +318,19 @@ func TestDBSessionStore_MarkVerifiedExpiredPending(t *testing.T) {
 		t.Fatalf("expire session: %v", err)
 	}
 
-	if err := store.MarkVerified(t.Context(), sessionID); err != ErrSessionNotFound {
-		t.Errorf("MarkVerified(expired) = %v, want ErrSessionNotFound", err)
+	// Rotation must not mint a full session for an expired pending: the
+	// INSERT selects zero rows, and the user is left with exactly the one
+	// (expired) row they started with.
+	if _, err := store.RotatePending(t.Context(), sessionID, userID); err != ErrSessionNotFound {
+		t.Errorf("RotatePending(expired) = %v, want ErrSessionNotFound", err)
+	}
+	var n int
+	if err := db.NewRaw(`SELECT COUNT(*) FROM sessions WHERE user_id = ?`, userID).
+		Scan(t.Context(), &n); err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("sessions after failed rotation = %d, want 1 (no new row inserted)", n)
 	}
 }
 
@@ -343,11 +366,11 @@ func TestDBSessionStore_RecordTOTPFailure(t *testing.T) {
 	}
 }
 
-func TestDBSessionStore_MarkVerifiedConcurrent(t *testing.T) {
+func TestDBSessionStore_RotatePendingConcurrent(t *testing.T) {
 	db := setupTestDB(t)
 
 	hash := "$2a$10$abcdefghijklmnopqrstuuABCDEFGHIJKLMNOPQRSTUVWXYZ12"
-	userID := insertTestUser(t, db, "session-concurrent@example.com", "+62833333336", hash)
+	userID := insertTestUser(t, db, "session-rotateconcurrent@example.com", "+62833333336", hash)
 
 	store := NewDBSessionStore(db)
 	sessionID, err := store.Create(t.Context(), userID, false)
@@ -355,8 +378,8 @@ func TestDBSessionStore_MarkVerifiedConcurrent(t *testing.T) {
 		t.Fatalf("Create: %v", err)
 	}
 
-	// Two concurrent promotions of the same pending session: exactly one
-	// UPDATE may match the verified=FALSE row; the loser gets ErrSessionNotFound.
+	// Two concurrent rotations of the same pending session: exactly one
+	// statement may delete the verified=FALSE row; losers get ErrSessionNotFound.
 	const workers = 4
 	results := make(chan error, workers)
 	var wg sync.WaitGroup
@@ -364,7 +387,8 @@ func TestDBSessionStore_MarkVerifiedConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			results <- store.MarkVerified(t.Context(), sessionID)
+			_, err := store.RotatePending(t.Context(), sessionID, userID)
+			results <- err
 		}()
 	}
 	wg.Wait()
@@ -378,15 +402,23 @@ func TestDBSessionStore_MarkVerifiedConcurrent(t *testing.T) {
 		case ErrSessionNotFound:
 			// loser — fine
 		default:
-			t.Fatalf("unexpected error from MarkVerified: %v", err)
+			t.Fatalf("unexpected error from RotatePending: %v", err)
 		}
 	}
 	if wins != 1 {
-		t.Errorf("concurrent MarkVerified: %d winners, want exactly 1", wins)
+		t.Errorf("concurrent RotatePending: %d winners, want exactly 1", wins)
 	}
 
-	// And the session really is promoted exactly once.
-	if _, _, err := store.Validate(t.Context(), sessionID); err != nil {
-		t.Errorf("Validate after concurrent promotion: %v", err)
+	// Exactly one verified session row for the user; the pending row is gone.
+	var verified int
+	if err := db.NewRaw(`SELECT COUNT(*) FROM sessions WHERE user_id = ? AND verified`, userID).
+		Scan(t.Context(), &verified); err != nil {
+		t.Fatalf("count verified sessions: %v", err)
+	}
+	if verified != 1 {
+		t.Errorf("verified sessions after concurrent rotation = %d, want 1", verified)
+	}
+	if _, _, err := store.Validate(t.Context(), sessionID); err != ErrSessionNotFound {
+		t.Errorf("Validate(old pending token) = %v, want ErrSessionNotFound", err)
 	}
 }
