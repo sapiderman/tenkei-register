@@ -58,6 +58,7 @@
 | PUT | `/v1/auth/profile` | XCFBypass + session cookie | Update profile |
 | POST | `/v1/auth/logout` | XCFBypass + session cookie | Invalidate session |
 | POST | `/v1/auth/logout-all` | XCFBypass + session cookie | Revoke all sessions (compromise response) |
+| POST | `/v1/auth/delete` | XCFBypass + session cookie + rate-limit (5/min/IP) | GDPR Art. 17 erasure: password (+ current TOTP code when enrolled) → hard-deletes the user row (sessions/reset tokens cascade); audit row with the email survives as the request record |
 | POST | `/v1/auth/password` | XCFBypass + session cookie | Change own password (re-verifies current; invalidates other sessions) |
 | POST | `/v1/auth/2fa/verify` | XCFBypass + **pending**-session cookie + rate-limit (10/min/IP) | TOTP login step 2: code check → promotes pending session (only when `TENKEI_TOTP_ENABLED=true`; else 404) |
 | POST | `/v1/auth/2fa/enroll` | XCFBypass + session cookie + rate-limit (5/min/IP) | Start TOTP enrollment; returns secret + `otpauth://` URL once (409 if already enabled) |

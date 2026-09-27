@@ -1,0 +1,610 @@
+openapi: 3.0.3
+info:
+  title: Tenkei Register Backend
+  version: 0.0.8
+  description: |
+    JSON-only API for the Tenkei Aikido Dojo member registration and administration.
+
+    **Auth**: server-side session cookie (`HttpOnly`, `SameSite=Lax`). After login the
+    browser holds the session cookie automatically; pass it on every authenticated call.
+    2FA endpoints under `/v1/auth/2fa/*` are only mounted when `TENKEI_TOTP_ENABLED=true`;
+    otherwise they return 404.
+
+    All non-health routes sit behind an X-CF-Bypass shared-secret gate (404 when absent/invalid).
+servers:
+  - url: /
+tags:
+  - name: Health
+  - name: Register
+  - name: Auth
+  - name: 2FA
+  - name: Admin
+
+security:
+  - sessionCookie: []
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      security: []   # no session, no XCFBypass
+      responses:
+        '200':
+          description: Service is alive
+          content:
+            text/plain:
+              schema: { type: string }
+
+  /v1/register/:
+    post:
+      tags: [Register]
+      summary: Register a new member
+      security: []   # public (Turnstile-verified, rate-limited 5/min/IP)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Registration accepted (welcome email + admin notice sent async)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email already registered
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /v1/register/count:
+    get:
+      tags: [Register]
+      summary: Total registered member count
+      description: Stub — handler is a TODO and currently returns an empty 200.
+      security: []
+      responses:
+        '200':
+          description: Currently unimplemented (empty body)
+
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Log in (step 1)
+      description: |
+        Returns `{"status":"ok"}` with a full session cookie for password-only members.
+        For 2FA-enrolled members returns `{"status":"2fa_required"}` with a pending
+        session cookie (5 min TTL) — finish via `/v1/auth/2fa/verify`.
+        Invalid credentials and unknown users are indistinguishable (anti-enumeration).
+      security: []   # public (Turnstile-verified, rate-limited 10/min/IP)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Logged in (or 2FA required — see description)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /v1/auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request a password-reset email
+      security: []   # public, rate-limited 5/min/IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ForgotPasswordRequest'
+      responses:
+        '200':
+          description: Always ok (does not reveal whether the email exists)
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /v1/auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Set a new password with an emailed token
+      security: []   # public (token is the proof), rate-limited 10/min/IP
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+      responses:
+        '200':
+          description: Password reset; sessions invalidated
+        '400':
+          description: Invalid or expired token / weak password
+        '500':
+          $ref: '#/components/responses/Internal'
+
+  /v1/auth/profile:
+    get:
+      tags: [Auth]
+      summary: View own profile
+      responses:
+        '200':
+          description: Current member profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Auth]
+      summary: Update own profile
+      description: Partial update; only sent fields change. WhatsApp numbers are normalized to E.164. Requires `current_password` when changing `email`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Current password mismatch (email change)
+
+  /v1/auth/password:
+    post:
+      tags: [Auth]
+      summary: Change own password
+      description: Re-verifies the current password and invalidates all other sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '200':
+          description: Password changed
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Current password mismatch
+
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Invalidate the current session
+      responses:
+        '200':
+          description: Logged out
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/auth/logout-all:
+    post:
+      tags: [Auth]
+      summary: Invalidate all own sessions (compromise response)
+      responses:
+        '200':
+          description: All sessions revoked
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /v1/auth/delete:
+    post:
+      tags: [Auth]
+      summary: Delete own account (GDPR Art. 17 erasure)
+      description: >-
+        Requires session + current password (plus the current TOTP code when
+        2FA is enrolled). Hard-deletes the user row; sessions and
+        password-reset tokens cascade. An audit row with the email survives
+        as the record of the request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password]
+              properties:
+                current_password: { type: string }
+                code: { type: string, description: 'Current TOTP code; required only when 2FA is enrolled' }
+      responses:
+        '200':
+          description: Account deleted; session cookie cleared
+        '400':
+          description: Invalid payload or invalid TOTP code
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Current password verification failed
+
+  /v1/auth/2fa/verify:
+    post:
+      tags: [2FA]
+      summary: Login step 2 — verify TOTP code
+      description: The only endpoint a pending session can reach. Promotes the session to full 12h on success. 5 wrong codes delete the session.
+      security: []   # pending session, not the full one
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpCodeRequest'
+      responses:
+        '200':
+          description: Session promoted
+        '401':
+          description: 'Invalid/expired code — code: invalid_code | session_expired | totp_locked'
+        '404':
+          description: TOTP disabled app-wide
+
+  /v1/auth/2fa/enroll:
+    post:
+      tags: [2FA]
+      summary: Start TOTP enrollment
+      description: Returns the secret and `otpauth://` URL once. 409 if already enabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpConfirmRequest'
+      responses:
+        '200':
+          description: Enrollment started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  secret: { type: string }
+                  otpauth_url: { type: string }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Current password verification failed
+        '409':
+          description: 2FA already enabled
+
+  /v1/auth/2fa/confirm:
+    post:
+      tags: [2FA]
+      summary: Finish enrollment (password + first code)
+      responses:
+        '200':
+          description: 2FA enabled
+        '400':
+          description: Invalid code or no pending enrollment
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Current password verification failed
+
+  /v1/auth/2fa/disable:
+    post:
+      tags: [2FA]
+      summary: Turn 2FA off (password + current code)
+      responses:
+        '200':
+          description: 2FA disabled
+        '400':
+          description: Invalid code or 2FA not enabled
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Current password verification failed
+
+  /v1/admin/users:
+    get:
+      tags: [Admin]
+      summary: List members (summary only, no PII)
+      description: 'Requires session + role >= admin. Viewer-scoped: admins see only `new`/`user` members.'
+      parameters:
+        - { name: page,     in: query, schema: { type: integer, default: 1 } }
+        - { name: size,     in: query, schema: { type: integer, default: 25, minimum: 1, maximum: 100 } }
+        - { name: q,        in: query, schema: { type: string }, description: Search by name/email }
+        - { name: pending,  in: query, schema: { type: string, enum: ['true', 'false'] }, description: 'Only unverified (role=new) members' }
+      responses:
+        '200':
+          description: Paginated member summaries
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/users/{id}:
+    parameters:
+      - $ref: '#/components/parameters/MemberID'
+    get:
+      tags: [Admin]
+      summary: View a member's full profile
+      description: Admin sees `new`/`user` only (out-of-scope → 404, anti-enumeration); superuser sees anyone.
+      responses:
+        '200':
+          description: Full member profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Not found or out of viewer scope
+    put:
+      tags: [Admin]
+      summary: Edit a member's profile
+      description: Same field whitelist as self-profile PUT; `role` is absent from the body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Not found or out of viewer scope
+
+  /v1/admin/users/{id}/verify:
+    post:
+      tags: [Admin]
+      summary: Verify a member (new → user)
+      parameters:
+        - $ref: '#/components/parameters/MemberID'
+      responses:
+        '200':
+          description: Member verified
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Not found or out of viewer scope
+
+  /v1/admin/users/{id}/role:
+    put:
+      tags: [Admin]
+      summary: Set a member's role (superuser only)
+      description: Atomic last-superuser guard — cannot demote the final superuser.
+      parameters:
+        - $ref: '#/components/parameters/MemberID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RoleRequest'
+      responses:
+        '200':
+          description: Role updated
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Would demote the last superuser
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session   # server-side session token; only SHA-256(token) is stored
+
+  parameters:
+    MemberID:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+
+  responses:
+    BadRequest:
+      description: Validation or input error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid session
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated but role below the required level
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Internal:
+      description: Internal server error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+        code:  { type: string, description: 'Machine-readable code on some auth failures, e.g. invalid_code' }
+
+    RegisterRequest:
+      type: object
+      required: [email, name, whatsapp, date_of_birth, dojo, rank, password, password_confirm, consent_datastore]
+      properties:
+        email:                  { type: string, format: email }
+        name:                   { type: string, maxLength: 255 }
+        whatsapp:               { type: string, description: E.164-normalized on write }
+        date_of_birth:          { type: string, format: date }
+        dojo:                   { type: string }
+        faculty:                { type: string }
+        major:                  { type: string }
+        rank:                   { type: string }
+        last_grading_date:      { type: string, format: date }
+        password:               { type: string, format: password, minLength: 8, maxLength: 72 }
+        password_confirm:       { type: string, format: password }
+        consent_datastore:      { type: boolean }
+        consent_marketing:      { type: boolean }
+        medical_conditions:     { type: string, maxLength: 2000 }
+        emergency_contact_name: { type: string }
+        emergency_contact_number: { type: string, description: E.164-normalized on write }
+        cf_turnstile_response:  { type: string, description: Required when Turnstile is enabled }
+
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier:             { type: string, format: email }
+        password:               { type: string, format: password }
+        cf_turnstile_response:  { type: string, description: Required when Turnstile is enabled }
+
+    LoginResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, 2fa_required]
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email:                 { type: string, format: email }
+        cf_turnstile_response: { type: string, description: Required when Turnstile is enabled }
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, new_password]
+      properties:
+        token:        { type: string, maxLength: 128 }
+        new_password: { type: string, format: password, minLength: 8, maxLength: 72 }
+
+    Profile:
+      type: object
+      properties:
+        id:                     { type: integer, format: int64 }
+        name:                   { type: string }
+        email:                  { type: string, format: email }
+        whatsapp:               { type: string }
+        dojo:                   { type: string }
+        faculty:                { type: string }
+        major:                  { type: string }
+        rank:                   { type: string }
+        date_of_birth:          { type: string, format: date }
+        join_date:              { type: string, format: date }
+        last_grading_date:      { type: string, format: date }
+        role:                   { type: string, enum: [new, user, admin, superuser] }
+        consent_datastore:      { type: boolean }
+        consent_marketing:      { type: boolean }
+        medical_conditions:     { type: string }
+        emergency_contact_name: { type: string }
+        emergency_contact_number: { type: string }
+        totp_enabled:           { type: boolean }
+
+    UpdateProfileRequest:
+      type: object
+      description: Partial — only provided fields are applied. `current_password` required when `email` changes.
+      properties:
+        name:                   { type: string, maxLength: 255 }
+        email:                  { type: string, format: email }
+        current_password:       { type: string, format: password, writeOnly: true }
+        whatsapp:               { type: string, maxLength: 30 }
+        date_of_birth:          { type: string, format: date }
+        dojo:                   { type: string }
+        faculty:                { type: string }
+        major:                  { type: string }
+        rank:                   { type: string }
+        last_grading_date:      { type: string, format: date }
+        medical_conditions:     { type: string, maxLength: 2000 }
+        emergency_contact_name: { type: string }
+        emergency_contact_number: { type: string }
+        consent_datastore:      { type: boolean }
+        consent_marketing:      { type: boolean }
+
+    ChangePasswordRequest:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password: { type: string, format: password, writeOnly: true }
+        new_password:     { type: string, format: password, minLength: 8, maxLength: 72, writeOnly: true }
+
+    TotpCodeRequest:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
+
+    TotpConfirmRequest:
+      type: object
+      required: [code, current_password]
+      properties:
+        code:             { type: string, pattern: '^[0-9]{6}$', writeOnly: true }
+        current_password: { type: string, format: password, writeOnly: true }
+
+    MemberSummary:
+      type: object
+      description: Viewer-safe row — no DOB, medical, or emergency contact.
+      properties:
+        id:       { type: integer, format: int64 }
+        name:     { type: string }
+        email:    { type: string, format: email }
+        whatsapp: { type: string }
+        dojo:     { type: string }
+        role:     { type: string, enum: [new, user, admin, superuser] }
+
+    MemberList:
+      type: object
+      properties:
+        members: { type: array, items: { $ref: '#/components/schemas/MemberSummary' } }
+        total:   { type: integer, format: int64 }
+        page:    { type: integer }
+        size:    { type: integer }
+
+    RoleRequest:
+      type: object
+      required: [role]
+      properties:
+        role: { type: string, enum: [new, user, admin, superuser] }

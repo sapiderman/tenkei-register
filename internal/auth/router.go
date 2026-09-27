@@ -137,6 +137,10 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 			r.Post("/logout", a.handleLogout)
 			r.Post("/logout-all", a.handleLogoutAll)
 
+			// GDPR erasure: destructive + irreversible, so both a re-verified
+			// password and a tight rate limit (same tier as 2FA disable).
+			r.With(mymiddleware.RateLimit(5, 1*time.Minute)).Post("/delete", a.handleDeleteAccount)
+
 			// Enrollment lifecycle (otp-plan.md Phase 4). Tighter rate limit:
 			// enroll/confirm/disable each touch bcrypt + a secret write.
 			if totpEnabled {
