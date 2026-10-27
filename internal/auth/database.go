@@ -73,11 +73,18 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 	if req.Dojo != "" {
 		user.Dojo = req.Dojo
 	}
-	if req.Faculty != "" {
+	// Atomic category block: unlike every other field (non-zero-only apply,
+	// so nothing can ever be cleared), a present category makes the whole
+	// block authoritative — category switch student -> regular must be able
+	// to wipe university/faculty/major/school/guardian. An empty category
+	// leaves the entire block untouched (backwards compatible).
+	if req.Category != "" {
+		user.Category = req.Category
+		user.University = req.University
 		user.Faculty = req.Faculty
-	}
-	if req.Major != "" {
 		user.Major = req.Major
+		user.SchoolName = req.SchoolName
+		user.GuardianName = req.GuardianName
 	}
 	if req.Rank != "" {
 		if !allowedRanks[req.Rank] {
@@ -122,11 +129,19 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 		user.ConsentMarketingEmails = *req.ConsentMarketing
 	}
 
-	// Post-state invariant: a member of the UI campus dojo always carries
-	// faculty and major. Checked after applying req so switching dojo to/from
-	// the campus dojo is judged on the resulting row, not the payload.
-	if types.FacultyMajorMissing(user.Dojo, user.Faculty, user.Major) {
-		return ErrFacultyMajorRequired
+	// Post-state invariant: the merged row must satisfy the category rules.
+	// Checked after applying req (so a category switch is judged on the
+	// resulting row) and on the whole block, so legacy rows with stray
+	// faculty/major are rejected on their next edit until the member (or an
+	// admin) resubmits the block for their category. Fail-closed by design.
+	if types.CategoryFieldsMissing(user.Category, types.CategoryFields{
+		University:   user.University,
+		Faculty:      user.Faculty,
+		Major:        user.Major,
+		SchoolName:   user.SchoolName,
+		GuardianName: user.GuardianName,
+	}) {
+		return ErrCategoryFields
 	}
 
 	_, err := db.NewUpdate().
@@ -138,6 +153,7 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 		Column(
 			"name", "email", "whatsapp_number",
 			"dojo", "faculty", "major", "rank", "date_of_birth", "last_grading_date",
+			"category", "university", "school_name", "guardian_name",
 			"medical_conditions", "emergency_contact_name", "emergency_contact_number",
 			"consent_datastore", "consent_marketing",
 		).

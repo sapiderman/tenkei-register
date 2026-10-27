@@ -135,33 +135,92 @@ func TestUpdateMember_AdminEditsNewUser(t *testing.T) {
 	}
 }
 
-// TestUpdateMember_FacultyMajorRule: saving a UI-campus member without
-// faculty/major maps ErrFacultyMajorRequired to a 400 with a clear error.
-func TestUpdateMember_FacultyMajorRule(t *testing.T) {
+// TestUpdateMember_CategoryRule: admin PUT funnels through
+// auth.ApplyProfileUpdate, so the shared category rule applies — one 400 per
+// category violation, and a well-formed block round-trips.
+func TestUpdateMember_CategoryRule(t *testing.T) {
 	a, r := newAdminMux(t)
-	tid := insertUser(t, a.db, "UI Member", "ui-put@example.com", types.RoleUser)
-	if _, err := a.db.NewRaw(`UPDATE users SET dojo = ? WHERE id = ?`, types.UIDojo, tid).Exec(t.Context()); err != nil {
-		t.Fatalf("set dojo: %v", err)
+	tid := insertUser(t, a.db, "Cat Member", "cat-put@example.com", types.RoleUser)
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"student without fields", `{"category":"student"}`},
+		{"kids without guardian", `{"category":"kids"}`},
+		{"kids with school name", `{"category":"kids","guardian_name":"Ibu Sri","school_name":"SMA Negeri 1"}`},
+		{"regular with university", `{"category":"regular","university":"UI"}`},
+		{"regular with guardian", `{"category":"regular","guardian_name":"Ibu Sri"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := withViewer(newReq(http.MethodPut, fmt.Sprintf("/users/%d", tid), tc.body), 1, types.RoleAdmin)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("got %d, want 400 (body=%s)", w.Code, w.Body.String())
+			}
+			if !strings.Contains(w.Body.String(), "category") {
+				t.Errorf("error text: got %s", w.Body.String())
+			}
+		})
 	}
 
-	req := withViewer(newReq(http.MethodPut, fmt.Sprintf("/users/%d", tid), `{"name":"No Fields"}`), 1, types.RoleAdmin)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("PUT without faculty/major: got %d, want 400 (body=%s)", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "faculty and major are required") {
-		t.Errorf("error text: got %s", w.Body.String())
-	}
-
-	// With both fields the same admin edit succeeds.
+	// A well-formed student block succeeds and lands in the DB.
 	ok := withViewer(newReq(http.MethodPut, fmt.Sprintf("/users/%d", tid),
-		`{"name":"Fixed","faculty":"Fakultas Teknik","major":"Teknik Elektro"}`), 1, types.RoleAdmin)
+		`{"category":"student","university":"UI","faculty":"Fakultas Teknik","major":"Teknik Elektro"}`), 1, types.RoleAdmin)
 	w2 := httptest.NewRecorder()
 	r.ServeHTTP(w2, ok)
 	if w2.Code != http.StatusOK {
-		t.Fatalf("PUT with faculty/major: got %d, want 200 (body=%s)", w2.Code, w2.Body.String())
+		t.Fatalf("PUT student block: got %d, want 200 (body=%s)", w2.Code, w2.Body.String())
+	}
+	u, _ := auth.GetUserByID(t.Context(), a.db, tid)
+	if u.Category != types.CategoryStudent || u.University != "UI" || u.Faculty != "Fakultas Teknik" || u.Major != "Teknik Elektro" {
+		t.Errorf("student block not persisted: %+v", u)
+	}
+}
+
+// TestGetMember_DetailIncludesCategoryFields: the member detail (admin
+// PII scope) carries the five category fields; one valid row can never hold
+// all five at once, so two rows cover every key.
+func TestGetMember_DetailIncludesCategoryFields(t *testing.T) {
+	a, r := newAdminMux(t)
+	kidsID := insertUser(t, a.db, "Kids Member", "cat-det-kids@example.com", types.RoleUser)
+	studentID := insertUser(t, a.db, "Student Member", "cat-det-student@example.com", types.RoleUser)
+	_, _ = a.db.NewRaw(
+		`UPDATE users SET category = 'kids', guardian_name = 'Ibu Sri' WHERE id = ?`, kidsID,
+	).Exec(t.Context())
+	_, _ = a.db.NewRaw(
+		`UPDATE users SET category = 'student', university = 'UI', faculty = 'Fakultas Teknik', major = 'Teknik Elektro', school_name = 'SMA Negeri 1' WHERE id = ?`,
+		studentID,
+	).Exec(t.Context())
+
+	get := func(id int64) map[string]any {
+		req := withViewer(newReq(http.MethodGet, fmt.Sprintf("/users/%d", id), ""), 1, types.RoleSuperuser)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("GET %d: got %d, want 200", id, w.Code)
+		}
+		var m map[string]any
+		if err := json.NewDecoder(w.Body).Decode(&m); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return m
+	}
+
+	kids := get(kidsID)
+	if kids["category"] != "kids" || kids["guardian_name"] != "Ibu Sri" {
+		t.Errorf("kids detail missing category fields: %v", kids)
+	}
+	student := get(studentID)
+	for key, want := range map[string]any{
+		"category": "student", "university": "UI", "faculty": "Fakultas Teknik",
+		"major": "Teknik Elektro", "school_name": "SMA Negeri 1",
+	} {
+		if student[key] != want {
+			t.Errorf("student detail %q = %v, want %v", key, student[key], want)
+		}
 	}
 }
 

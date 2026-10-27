@@ -23,6 +23,10 @@ type User struct {
 	Dojo            string    `bun:"dojo"`
 	Faculty         string    `bun:"faculty"`
 	Major           string    `bun:"major"`
+	Category        string    `bun:"category,notnull,default:'regular'"`
+	University      string    `bun:"university"`
+	SchoolName      string    `bun:"school_name"`
+	GuardianName    string    `bun:"guardian_name"`
 	DateOfBirth     time.Time `bun:"date_of_birth"`
 	Rank            string    `bun:"rank"`
 	LastGradingDate time.Time `bun:"last_grading_date"`
@@ -43,16 +47,50 @@ type User struct {
 	TOTPLastCounter int64  `bun:"totp_last_counter,notnull,default:0"` // replay guard: highest accepted TOTP step
 }
 
-// UIDojo is the canonical name of the Universitas Indonesia campus dojo.
-// Members of this dojo must record their faculty and major (see
-// FacultyMajorMissing). The spelling matches the university's own branding:
-// it calls itself "Universitas Indonesia" in every language.
-const UIDojo = "Tenkei Universitas Indonesia"
+// User categories (new-category.prd). One per user, chosen at registration,
+// editable via profile/admin updates, independent of dojo.
+const (
+	CategoryRegular = "regular"
+	CategoryStudent = "student"
+	CategoryKids    = "kids"
+)
 
-// FacultyMajorMissing reports whether the faculty/major-required rule is
-// violated for this dojo: members of UIDojo must have both fields filled.
-// It is the single source of the rule, shared by registration, self-profile
-// updates, and admin updates.
-func FacultyMajorMissing(dojo, faculty, major string) bool {
-	return dojo == UIDojo && (faculty == "" || major == "")
+// ValidCategory reports whether c is one of the three user categories.
+func ValidCategory(c string) bool {
+	switch c {
+	case CategoryRegular, CategoryStudent, CategoryKids:
+		return true
+	}
+	return false
+}
+
+// CategoryFields holds the category-conditional columns; the zero value
+// means "all empty".
+type CategoryFields struct {
+	University, Faculty, Major, SchoolName, GuardianName string
+}
+
+// CategoryFieldsMissing reports whether the category's required fields are
+// absent or disallowed fields are filled. Unknown category → true
+// (fail-closed). Single source of the rule for registration, self-profile,
+// and admin updates.
+func CategoryFieldsMissing(category string, f CategoryFields) bool {
+	filled := func(s string) bool { return s != "" }
+	switch category {
+	case CategoryRegular:
+		return filled(f.University) || filled(f.Faculty) || filled(f.Major) ||
+			filled(f.SchoolName) || filled(f.GuardianName)
+	case CategoryStudent:
+		// Exactly one path: university+faculty+major, or school_name alone.
+		universityPath := filled(f.University) && filled(f.Faculty) && filled(f.Major) &&
+			!filled(f.SchoolName) && !filled(f.GuardianName)
+		schoolPath := filled(f.SchoolName) && !filled(f.University) && !filled(f.Faculty) &&
+			!filled(f.Major) && !filled(f.GuardianName)
+		return !(universityPath || schoolPath)
+	case CategoryKids:
+		return !filled(f.GuardianName) || filled(f.University) || filled(f.Faculty) ||
+			filled(f.Major) || filled(f.SchoolName)
+	default:
+		return true
+	}
 }

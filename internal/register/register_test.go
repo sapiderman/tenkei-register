@@ -3,6 +3,7 @@ package register
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,7 +15,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/internal/turnstile"
-	"github.com/sapiderman/tenkei-register/internal/types"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -204,10 +204,61 @@ func TestHandleSubmission_Validation(t *testing.T) {
 		{name: "InvalidRank", mutate: func(m map[string]any) { m["rank"] = "Black Belt Grandmaster" }, wantErr: "Invalid rank"},
 		{name: "MissingConsent", mutate: func(m map[string]any) { m["consent_datastore"] = false }, wantErr: "consent to data storage"},
 		{name: "DojoTooLong", mutate: func(m map[string]any) { m["dojo"] = strings.Repeat("a", 256) }, wantErr: "Dojo name is too long"},
-		{name: "FacultyTooLong", mutate: func(m map[string]any) { m["faculty"] = strings.Repeat("a", 101) }, wantErr: "Faculty is too long"},
-		{name: "MajorTooLong", mutate: func(m map[string]any) { m["major"] = strings.Repeat("a", 101) }, wantErr: "Major is too long"},
-		{name: "UIDojoMissingFaculty", mutate: func(m map[string]any) { m["dojo"] = types.UIDojo; m["major"] = "Teknik Elektro" }, wantErr: "Faculty and major are required"},
-		{name: "UIDojoMissingMajor", mutate: func(m map[string]any) { m["dojo"] = types.UIDojo; m["faculty"] = "Fakultas Teknik" }, wantErr: "Faculty and major are required"},
+		{name: "FacultyTooLong", mutate: func(m map[string]any) {
+			m["category"] = "student"
+			m["university"] = "UI"
+			m["faculty"] = strings.Repeat("a", 101)
+			m["major"] = "Teknik Elektro"
+		}, wantErr: "Faculty is too long"},
+		{name: "MajorTooLong", mutate: func(m map[string]any) {
+			m["category"] = "student"
+			m["university"] = "UI"
+			m["faculty"] = "Fakultas Teknik"
+			m["major"] = strings.Repeat("a", 101)
+		}, wantErr: "Major is too long"},
+
+		// Category validation (dojo-independent rule).
+		{name: "UnknownCategory", mutate: func(m map[string]any) { m["category"] = "alumni" }, wantErr: "Invalid registration category."},
+		{name: "StudentMissingAllFields", mutate: func(m map[string]any) { m["category"] = "student" }, wantErr: "University, department, and major are required"},
+		{name: "StudentMissingFaculty", mutate: func(m map[string]any) {
+			m["category"] = "student"
+			m["university"] = "UI"
+			m["major"] = "Teknik Elektro"
+		}, wantErr: "University, department, and major are required"},
+		{name: "StudentMissingMajor", mutate: func(m map[string]any) {
+			m["category"] = "student"
+			m["university"] = "UI"
+			m["faculty"] = "Fakultas Teknik"
+		}, wantErr: "University, department, and major are required"},
+		{name: "StudentBothPathsFilled", mutate: func(m map[string]any) {
+			m["category"] = "student"
+			m["university"] = "UI"
+			m["faculty"] = "Fakultas Teknik"
+			m["major"] = "Teknik Elektro"
+			m["school_name"] = "SMA Negeri 1"
+		}, wantErr: "University, department, and major are required"},
+		{name: "StudentWithGuardian", mutate: func(m map[string]any) {
+			m["category"] = "student"
+			m["university"] = "UI"
+			m["faculty"] = "Fakultas Teknik"
+			m["major"] = "Teknik Elektro"
+			m["guardian_name"] = "Ibu Sri"
+		}, wantErr: "University, department, and major are required"},
+		{name: "KidsMissingGuardian", mutate: func(m map[string]any) { m["category"] = "kids" }, wantErr: "Parent or guardian name is required"},
+		{name: "KidsWithUniversity", mutate: func(m map[string]any) { m["category"] = "kids"; m["guardian_name"] = "Ibu Sri"; m["university"] = "UI" }, wantErr: "Parent or guardian name is required"},
+		{name: "RegularWithFaculty", mutate: func(m map[string]any) { m["faculty"] = "Fakultas Teknik" }, wantErr: "Regular registrations must not include student or guardian fields."},
+		{name: "RegularWithMajor", mutate: func(m map[string]any) { m["major"] = "Teknik Elektro" }, wantErr: "Regular registrations must not include student or guardian fields."},
+		{name: "RegularWithUniversity", mutate: func(m map[string]any) { m["university"] = "UI" }, wantErr: "Regular registrations must not include student or guardian fields."},
+		{name: "RegularWithSchool", mutate: func(m map[string]any) { m["school_name"] = "SMA Negeri 1" }, wantErr: "Regular registrations must not include student or guardian fields."},
+		{name: "RegularWithGuardian", mutate: func(m map[string]any) { m["guardian_name"] = "Ibu Sri" }, wantErr: "Regular registrations must not include student or guardian fields."},
+		{name: "UniversityTooLong", mutate: func(m map[string]any) {
+			m["category"] = "student"
+			m["university"] = strings.Repeat("a", 256)
+			m["faculty"] = "Fakultas Teknik"
+			m["major"] = "Teknik Elektro"
+		}, wantErr: "University is too long"},
+		{name: "SchoolNameTooLong", mutate: func(m map[string]any) { m["category"] = "student"; m["school_name"] = strings.Repeat("a", 256) }, wantErr: "School name is too long"},
+		{name: "GuardianNameTooLong", mutate: func(m map[string]any) { m["category"] = "kids"; m["guardian_name"] = strings.Repeat("a", 101) }, wantErr: "Guardian name is too long"},
 		{name: "MedicalConditionsTooLong", mutate: func(m map[string]any) { m["medical_conditions"] = strings.Repeat("a", 2001) }, wantErr: "Medical conditions"},
 		{name: "EmergencyNameTooLong", mutate: func(m map[string]any) { m["emergency_contact_name"] = strings.Repeat("a", 256) }, wantErr: "Emergency contact name"},
 		{name: "EmergencyNumberTooLong", mutate: func(m map[string]any) { m["emergency_contact_number"] = "+" + strings.Repeat("1", 20) }, wantErr: "Invalid emergency contact number"},
@@ -319,34 +370,84 @@ func TestHandleSubmission_Success(t *testing.T) {
 	}
 }
 
-// TestHandleSubmission_UIDojoStoresFacultyMajor: a UI-campus registration with
-// both fields is stored verbatim; the DB row keeps the canonical dojo value.
-func TestHandleSubmission_UIDojoStoresFacultyMajor(t *testing.T) {
+// TestHandleSubmission_CategoryHappyPaths registers one member per category
+// and asserts the stored columns. The omitted-category case pins the rollout
+// default: old forms that send no category land as regular.
+func TestHandleSubmission_CategoryHappyPaths(t *testing.T) {
 	reg := newTestRegistrarDB(t)
 	db := reg.db
-	wipeUsers(t, db, "ui-member@example.com", "+628121212121")
 
-	m := validPayloadMap()
-	m["email"] = "ui-member@example.com"
-	m["whatsapp"] = "+628121212121"
-	m["dojo"] = types.UIDojo
-	m["faculty"] = "Fakultas Teknik"
-	m["major"] = "Teknik Elektro"
-
-	w := doJSONRequest(t, reg, marshalJSON(m))
-	if w.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+	cases := []struct {
+		name string
+		mut  func(m map[string]any)
+		want struct{ category, university, faculty, major, school, guardian string }
+	}{
+		{
+			name: "regular default when category omitted",
+			mut:  func(m map[string]any) {},
+			want: struct{ category, university, faculty, major, school, guardian string }{"regular", "", "", "", "", ""},
+		},
+		{
+			name: "student university path",
+			mut: func(m map[string]any) {
+				m["dojo"] = "Tenkei Universitas Indonesia"
+				m["category"] = "student"
+				m["university"] = "Universitas Indonesia"
+				m["faculty"] = "Fakultas Teknik"
+				m["major"] = "Teknik Elektro"
+			},
+			want: struct{ category, university, faculty, major, school, guardian string }{"student", "Universitas Indonesia", "Fakultas Teknik", "Teknik Elektro", "", ""},
+		},
+		{
+			name: "student school path",
+			mut: func(m map[string]any) {
+				m["category"] = "student"
+				m["school_name"] = "SMA Negeri 1"
+			},
+			want: struct{ category, university, faculty, major, school, guardian string }{"student", "", "", "", "SMA Negeri 1", ""},
+		},
+		{
+			name: "kids",
+			mut: func(m map[string]any) {
+				m["category"] = "kids"
+				m["guardian_name"] = "Ibu Sri"
+			},
+			want: struct{ category, university, faculty, major, school, guardian string }{"kids", "", "", "", "", "Ibu Sri"},
+		},
 	}
 
-	var faculty, major, dojo string
-	err := db.NewRaw(
-		`SELECT faculty, major, dojo FROM users WHERE email = ?`, "ui-member@example.com",
-	).Scan(t.Context(), &faculty, &major, &dojo)
-	if err != nil {
-		t.Fatalf("select stored user: %v", err)
-	}
-	if faculty != "Fakultas Teknik" || major != "Teknik Elektro" || dojo != types.UIDojo {
-		t.Errorf("stored faculty=%q major=%q dojo=%q", faculty, major, dojo)
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			email := fmt.Sprintf("cat-%d@example.com", i)
+			wa := fmt.Sprintf("+62812123000%d", i)
+			wipeUsers(t, db, email, wa)
+
+			m := validPayloadMap()
+			m["email"] = email
+			m["whatsapp"] = wa
+			tc.mut(m)
+
+			w := doJSONRequest(t, reg, marshalJSON(m))
+			if w.Code != http.StatusCreated {
+				t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
+			}
+
+			var category, university, faculty, major, school, guardian, dojo string
+			err := db.NewRaw(
+				`SELECT category, university, faculty, major, school_name, guardian_name, dojo
+				 FROM users WHERE email = ?`, email,
+			).Scan(t.Context(), &category, &university, &faculty, &major, &school, &guardian, &dojo)
+			if err != nil {
+				t.Fatalf("select stored user: %v", err)
+			}
+			got := struct{ category, university, faculty, major, school, guardian string }{category, university, faculty, major, school, guardian}
+			if got != tc.want {
+				t.Errorf("stored category block = %+v, want %+v", got, tc.want)
+			}
+			if wantDojo, ok := map[int]string{1: "Tenkei Universitas Indonesia"}[i]; ok && dojo != wantDojo {
+				t.Errorf("stored dojo = %q, want %q (dojo stored verbatim)", dojo, wantDojo)
+			}
+		})
 	}
 }
 

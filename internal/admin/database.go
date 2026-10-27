@@ -54,7 +54,7 @@ func (a *administrator) dbListUsers(ctx context.Context, viewerLevel int, search
 
 	pageSel := applyConds(a.db.NewSelect().
 		Model((*types.User)(nil)).
-		Column("id", "name", "email", "whatsapp_number", "dojo", "role").
+		Column("id", "name", "email", "whatsapp_number", "dojo", "role", "category").
 		OrderExpr("id ASC").
 		Limit(size).
 		Offset(offset))

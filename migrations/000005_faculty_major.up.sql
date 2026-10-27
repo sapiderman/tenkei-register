@@ -1,6 +1,6 @@
--- Faculty and major: free-text academic affiliation, required for members of
--- the Tenkei Universitas Indonesia campus dojo (enforced in application code
--- via types.FacultyMajorMissing), optional elsewhere.
+-- Faculty and major: free-text academic affiliation, historically required
+-- for members of the Tenkei Universitas Indonesia campus dojo (dojo rule
+-- since replaced by user categories in 000009), optional elsewhere.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "faculty" varchar(100);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS "major" varchar(100);
 

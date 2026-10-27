@@ -26,6 +26,10 @@ type RegistrationFormData struct {
 	Dojo                   string `json:"dojo"`
 	Faculty                string `json:"faculty"`
 	Major                  string `json:"major"`
+	Category               string `json:"category"`
+	University             string `json:"university"`
+	SchoolName             string `json:"school_name"`
+	GuardianName           string `json:"guardian_name"`
 	Rank                   string `json:"rank"`
 	LastGradingDate        string `json:"last_grading_date"`
 	Role                   string `json:"role"`
@@ -55,6 +59,10 @@ func sanitizeFormData(d RegistrationFormData) RegistrationFormData {
 	d.Dojo = sanitizeInput(d.Dojo)
 	d.Faculty = sanitizeInput(d.Faculty)
 	d.Major = sanitizeInput(d.Major)
+	d.Category = sanitizeInput(d.Category)
+	d.University = sanitizeInput(d.University)
+	d.SchoolName = sanitizeInput(d.SchoolName)
+	d.GuardianName = sanitizeInput(d.GuardianName)
 	d.Rank = sanitizeInput(d.Rank)
 	d.LastGradingDate = sanitizeInput(d.LastGradingDate)
 	d.Role = sanitizeInput(d.Role)
@@ -180,11 +188,44 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		badRequest("Major is too long (max 100 characters).")
 		return
 	}
-	// Conditional requirement: UI-campus members must record faculty and major.
-	// One shared rule (types.FacultyMajorMissing) covers registration, profile,
-	// and admin updates.
-	if types.FacultyMajorMissing(formData.Dojo, formData.Faculty, formData.Major) {
-		badRequest("Faculty and major are required for " + types.UIDojo + " registrations.")
+	// Conditional requirement per user category (dojo-independent). One
+	// shared rule (types.CategoryFieldsMissing) covers registration, profile,
+	// and admin updates. Empty category defaults to regular so forms that
+	// predate categories keep working; any other invalid value is rejected.
+	if formData.Category == "" {
+		formData.Category = types.CategoryRegular
+	}
+	if !types.ValidCategory(formData.Category) {
+		badRequest("Invalid registration category.")
+		return
+	}
+	if len(formData.University) > 255 {
+		badRequest("University is too long (max 255 characters).")
+		return
+	}
+	if len(formData.SchoolName) > 255 {
+		badRequest("School name is too long (max 255 characters).")
+		return
+	}
+	if len(formData.GuardianName) > 100 {
+		badRequest("Guardian name is too long (max 100 characters).")
+		return
+	}
+	if types.CategoryFieldsMissing(formData.Category, types.CategoryFields{
+		University:   formData.University,
+		Faculty:      formData.Faculty,
+		Major:        formData.Major,
+		SchoolName:   formData.SchoolName,
+		GuardianName: formData.GuardianName,
+	}) {
+		switch formData.Category {
+		case types.CategoryStudent:
+			badRequest("University, department, and major are required for student registrations (or school name if still in school).")
+		case types.CategoryKids:
+			badRequest("Parent or guardian name is required for kids registrations.")
+		default:
+			badRequest("Regular registrations must not include student or guardian fields.")
+		}
 		return
 	}
 	if len(formData.MedicalConditions) > 2000 {
@@ -229,6 +270,10 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		Dojo:                   formData.Dojo,
 		Faculty:                formData.Faculty,
 		Major:                  formData.Major,
+		Category:               formData.Category,
+		University:             formData.University,
+		SchoolName:             formData.SchoolName,
+		GuardianName:           formData.GuardianName,
 		Rank:                   formData.Rank,
 		LastGradingDate:        lastGradingDate,
 		Role:                   "new", // hard-coded default; client-supplied role is ignored

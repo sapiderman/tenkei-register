@@ -134,8 +134,8 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid phone number; use international format, e.g. +628123456789"})
 			return
 		}
-		if errors.Is(err, ErrFacultyMajorRequired) {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "faculty and major are required for this dojo"})
+		if errors.Is(err, ErrCategoryFields) {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "fields do not match the selected category"})
 			return
 		}
 		log.Error().Err(err).Int64("user_id", userID).Msg("profile update failed")

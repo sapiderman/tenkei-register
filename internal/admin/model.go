@@ -10,6 +10,9 @@ type MemberSummary struct {
 	WhatsApp string `json:"whatsapp"`
 	Dojo     string `json:"dojo"`
 	Role     string `json:"role"`
+	// Category is the registration-category badge (PRD admin surface); the
+	// conditional fields stay out of the summary — detail view only.
+	Category string `json:"category"`
 }
 
 // ListUsersResponse wraps a page of summaries with pagination metadata.
