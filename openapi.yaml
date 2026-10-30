@@ -486,8 +486,8 @@ components:
         faculty:                { type: string }
         major:                  { type: string }
         category:               { type: string, enum: [regular, student, kids], default: regular }
-        university:             { type: string, maxLength: 255, description: 'Required when category=student' }
-        school_name:            { type: string, maxLength: 255, description: 'Required when category=kids' }
+        university:             { type: string, maxLength: 255, description: 'Required for the university path (with faculty/major); see school_name for the alternative' }
+        school_name:            { type: string, maxLength: 255, description: 'Student path: school name alone (still in school); must be empty for kids' }
         guardian_name:          { type: string, maxLength: 100, description: 'Required when category=kids' }
         rank:                   { type: string }
         last_grading_date:      { type: string, format: date }

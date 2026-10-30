@@ -239,7 +239,7 @@ func (a *authenticator) handleDeleteAccount(w http.ResponseWriter, r *http.Reque
 	// Audit first: it records the *request* even if the delete then fails
 	// (500), and it must survive the user row it points at (no FK on
 	// audit.user_id by design). Raw email kept per GDPR accountability.
-	Audit(r.Context(), a.db, a.logger, userID, "user with email: "+user.Email+" requested deletion")
+	Audit(r.Context(), a.db, a.logger, userID, "data_deletion:email="+user.Email)
 
 	// Hard delete. Sessions and password-reset tokens go with it (ON DELETE
 	// CASCADE); audit rows intentionally remain.

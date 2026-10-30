@@ -90,7 +90,7 @@ type PasswordChangeRequest struct {
 // when the member has TOTP enabled. Write-only, never logged (AGENTS.md rule 3).
 type AccountDeletionRequest struct {
 	CurrentPassword string `json:"current_password" validate:"required,max=72"` // #nosec G117 — never logged
-	Code            string `json:"code" validate:"omitempty,len=6"`
+	Code            string `json:"code" validate:"omitempty,numeric,len=6"`
 }
 
 // ForgotPasswordRequest is the inbound payload for POST /v1/auth/forgot-password.

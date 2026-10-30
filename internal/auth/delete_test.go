@@ -54,8 +54,8 @@ func TestHandleDeleteAccount_Success(t *testing.T) {
 	if err := db.NewRaw(`SELECT action FROM audit WHERE user_id = ?`, userID).Scan(t.Context(), &action); err != nil {
 		t.Fatalf("read audit row: %v", err)
 	}
-	if !strings.Contains(action, "gdpr-del@example.com") || !strings.Contains(action, "requested deletion") {
-		t.Errorf("audit action = %q, want it to name the email and the deletion request", action)
+	if !strings.Contains(action, "data_deletion:email=gdpr-del@example.com") {
+		t.Errorf("audit action = %q, want structured data_deletion action naming the email", action)
 	}
 
 	// Session cookie cleared client-side.
