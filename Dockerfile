@@ -18,18 +18,14 @@ RUN CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -o main .
 
 # Run stage
 FROM alpine:latest
-ENV USER=appuser UID=1000 PATH=/app:${PATH} LISTEN_ADDR=:3000
+ENV USER=appuser UID=1000 PATH=/app:${PATH}
 
 WORKDIR /app
 
 # Copy the Pre-built binary from the previous stage
 COPY --from=builder /app/main .
 
-# Copy necessary config
-COPY --from=builder /app/migrations ./migrations
-
 # add non-root user and switch to it
-RUN apk --no-cache add curl
 RUN adduser -D -g "" -h "/nonexistent" -s "/sbin/nologin" -H -u "${UID}" "${USER}"
 RUN chown ${USER}:${USER} /app/main
 USER ${USER}:${USER}
