@@ -42,9 +42,11 @@ func insertTestUser(t *testing.T, db *bun.DB, email, whatsapp, passwordHash stri
 	t.Helper()
 
 	_, err := db.NewRaw(
+		// Conflict target is the functional index on lower(email)
+		// (migrations/000010) — ON CONFLICT (email) no longer matches any index.
 		`INSERT INTO users (name, email, whatsapp_number, password_hash, role, consent_datastore)
 		 VALUES (?, ?, ?, ?, 'user', true)
-		 ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash
+		 ON CONFLICT (lower(email)) DO UPDATE SET email = EXCLUDED.email, password_hash = EXCLUDED.password_hash
 		 RETURNING id`,
 		"Test User", email, whatsapp, passwordHash,
 	).Exec(t.Context())
