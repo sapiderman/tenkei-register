@@ -11,18 +11,6 @@ import (
 	"github.com/spf13/viper"
 )
 
-var (
-	isInitialized = false
-)
-
-func IsInitialized() bool {
-	return isInitialized
-}
-
-func SetInitialized(initialized bool) {
-	isInitialized = initialized
-}
-
 type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	Database DatabaseConfig `mapstructure:"database"`
@@ -73,7 +61,7 @@ func LoadConfig(path string) (*Config, error) {
 	viper.SetDefault("server.port", 3000)
 	viper.SetDefault("server.mode", "production")
 	viper.SetDefault("server.read_header_timeout", "5s")
-	viper.SetDefault("server.version", "0.2.4-20261030")
+	viper.SetDefault("server.version", "0.2.5-20261030")
 	viper.SetDefault("server.turnstile_enabled", true)
 	// zerolog's default global level is Debug, which logs every SQL statement
 	// in production (queryHook logs at Debug). Default the app to info.
@@ -168,6 +156,5 @@ func LoadConfig(path string) (*Config, error) {
 		log.Info().Msg("TOTP 2FA enabled")
 	}
 
-	SetInitialized(true)
 	return &cfg, nil
 }

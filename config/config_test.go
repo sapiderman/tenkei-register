@@ -11,12 +11,11 @@ import (
 )
 
 // resetViper restores viper's global state between tests. viper is a package
-// singleton, so every test must reset it and the isInitialized flag.
+// singleton, so every test must reset it.
 func resetViper(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
 		viper.Reset()
-		SetInitialized(false)
 	})
 }
 
@@ -75,9 +74,6 @@ func TestLoadConfig_Defaults(t *testing.T) {
 	}
 	if cfg.Server.XCFBypass != "test-key" {
 		t.Errorf("x_cf_bypass: got %q", cfg.Server.XCFBypass)
-	}
-	if !IsInitialized() {
-		t.Error("expected IsInitialized() == true after successful load")
 	}
 }
 
@@ -316,18 +312,6 @@ func TestLoadConfig_MailerDisabledNoKey_ProductionBoots(t *testing.T) {
 	if _, err := LoadConfig(t.TempDir()); err != nil {
 		t.Fatalf("disabled mailer must boot in production, got: %v", err)
 	}
-}
-
-func TestIsInitialized(t *testing.T) {
-	SetInitialized(false)
-	if IsInitialized() {
-		t.Error("expected false after SetInitialized(false)")
-	}
-	SetInitialized(true)
-	if !IsInitialized() {
-		t.Error("expected true after SetInitialized(true)")
-	}
-	SetInitialized(false)
 }
 
 // baseTotpEnv sets the minimal TOTP env for tests that keep it disabled.

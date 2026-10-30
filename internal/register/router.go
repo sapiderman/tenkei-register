@@ -15,7 +15,6 @@ import (
 )
 
 type registrar struct {
-	context   context.Context
 	logger    zerolog.Logger
 	validate  *validator.Validate
 	db        *bun.DB
@@ -31,7 +30,6 @@ type registrar struct {
 
 func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validate *validator.Validate, db *bun.DB, cfg *config.Config, mail mailer.Mailer) {
 	reg := &registrar{
-		context:     ctx,
 		logger:      logger,
 		validate:    validate,
 		db:          db,
