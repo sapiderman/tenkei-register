@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Tenkei Register Backend
-  version: 0.0.8
+  version: 0.2.0-20261027
   description: |
     JSON-only API for the Tenkei Aikido Dojo member registration and administration.
 
@@ -269,12 +269,6 @@ paths:
       tags: [2FA]
       summary: Start TOTP enrollment
       description: Returns the secret and `otpauth://` URL once. 409 if already enabled.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/TotpConfirmRequest'
       responses:
         '200':
           description: Enrollment started
@@ -287,8 +281,6 @@ paths:
                   otpauth_url: { type: string }
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          description: Current password verification failed
         '409':
           description: 2FA already enabled
 
@@ -296,6 +288,12 @@ paths:
     post:
       tags: [2FA]
       summary: Finish enrollment (password + first code)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpConfirmRequest'
       responses:
         '200':
           description: 2FA enabled
@@ -310,6 +308,12 @@ paths:
     post:
       tags: [2FA]
       summary: Turn 2FA off (password + current code)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TotpConfirmRequest'
       responses:
         '200':
           description: 2FA disabled
@@ -481,6 +485,10 @@ components:
         dojo:                   { type: string }
         faculty:                { type: string }
         major:                  { type: string }
+        category:               { type: string, enum: [regular, student, kids], default: regular }
+        university:             { type: string, maxLength: 255, description: 'Required when category=student' }
+        school_name:            { type: string, maxLength: 255, description: 'Required when category=kids' }
+        guardian_name:          { type: string, maxLength: 100, description: 'Required when category=kids' }
         rank:                   { type: string }
         last_grading_date:      { type: string, format: date }
         password:               { type: string, format: password, minLength: 8, maxLength: 72 }
@@ -536,6 +544,10 @@ components:
         date_of_birth:          { type: string, format: date }
         join_date:              { type: string, format: date }
         last_grading_date:      { type: string, format: date }
+        category:               { type: string, enum: [regular, student, kids] }
+        university:             { type: string }
+        school_name:            { type: string }
+        guardian_name:          { type: string }
         role:                   { type: string, enum: [new, user, admin, superuser] }
         consent_datastore:      { type: boolean }
         consent_marketing:      { type: boolean }
@@ -556,6 +568,10 @@ components:
         dojo:                   { type: string }
         faculty:                { type: string }
         major:                  { type: string }
+        category:               { type: string, enum: [regular, student, kids] }
+        university:             { type: string, maxLength: 255 }
+        school_name:            { type: string, maxLength: 255 }
+        guardian_name:          { type: string, maxLength: 100 }
         rank:                   { type: string }
         last_grading_date:      { type: string, format: date }
         medical_conditions:     { type: string, maxLength: 2000 }
@@ -594,6 +610,7 @@ components:
         whatsapp: { type: string }
         dojo:     { type: string }
         role:     { type: string, enum: [new, user, admin, superuser] }
+        category: { type: string, enum: [regular, student, kids] }
 
     MemberList:
       type: object

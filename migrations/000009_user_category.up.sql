@@ -16,3 +16,9 @@ SET category = 'student',
     university = 'Universitas Indonesia'
 WHERE dojo = 'Tenkei Universitas Indonesia'
   AND faculty <> '' AND major <> '';
+
+-- Enum guard mirroring users_role_check (000004): app validation is the
+-- first line; this stops out-of-band writes from storing an unknown category.
+ALTER TABLE users
+    ADD CONSTRAINT users_category_check
+    CHECK (category IN ('regular', 'student', 'kids'));
