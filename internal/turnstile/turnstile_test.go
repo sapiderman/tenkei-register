@@ -1,10 +1,13 @@
 package turnstile
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 )
@@ -132,4 +135,69 @@ func TestVerify_Enabled(t *testing.T) {
 			t.Errorf("remoteip: want 10.0.0.1 (port stripped), got %q", gotRemote)
 		}
 	})
+}
+
+// --- Timeout and context bounds ---
+
+// A hanging siteverify endpoint must fail within the client timeout, not
+// block the caller for the server's sleep.
+func TestTimeout_HangBounded(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(2 * time.Second)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	t.Cleanup(ts.Close)
+
+	v := &Verifier{
+		logger:    zerolog.Nop(),
+		enabled:   true,
+		secret:    "test-secret",
+		VerifyURL: ts.URL,
+		Client:    &http.Client{Timeout: 50 * time.Millisecond},
+	}
+
+	start := time.Now()
+	err := v.Verify(httptest.NewRequest("POST", "/", nil), "tok")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("want timeout error, got nil")
+	}
+	if elapsed >= time.Second {
+		t.Fatalf("Verify blocked for %v; want it bounded near the 50ms client timeout", elapsed)
+	}
+}
+
+// A cancelled request context must fail Verify immediately, without waiting
+// for the siteverify endpoint.
+func TestTimeout_ContextCancelled(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(2 * time.Second)
+		_, _ = w.Write([]byte(`{"success":true}`))
+	}))
+	t.Cleanup(ts.Close)
+
+	v := &Verifier{
+		logger:    zerolog.Nop(),
+		enabled:   true,
+		secret:    "test-secret",
+		VerifyURL: ts.URL,
+	}
+
+	req := httptest.NewRequest("POST", "/", nil)
+	ctx, cancel := context.WithCancel(req.Context())
+	req = req.WithContext(ctx)
+	cancel()
+
+	start := time.Now()
+	err := v.Verify(req, "tok")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("want context-cancelled error, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("want context.Canceled, got %v", err)
+	}
+	if elapsed >= time.Second {
+		t.Fatalf("Verify waited %v after cancellation; want immediate return", elapsed)
+	}
 }
