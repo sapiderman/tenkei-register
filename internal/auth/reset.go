@@ -94,7 +94,7 @@ func (r *DBPasswordResetter) RequestReset(ctx context.Context, identifier string
 
 	Audit(ctx, r.db, r.logger, user.ID, "password_reset_requested")
 
-	r.sendResetEmailAsync(ctx, &user, token)
+	r.sendResetEmail(ctx, &user, token)
 	return nil
 }
 
@@ -211,33 +211,34 @@ func (r *DBPasswordResetter) classifyToken(ctx context.Context, token string) er
 	return ErrResetTokenExpired
 }
 
-// sendResetEmailAsync delivers the reset email without blocking the 200
-// response. Guardrails mirror register.sendRegistrationEmails: detached
-// context (a client disconnect can't abort delivery), panic recovery that
-// kills only this send, and categorized failure logging + audit. The audit
-// row carries only the category — no addresses, no token.
-func (r *DBPasswordResetter) sendResetEmailAsync(ctx context.Context, user *types.User, token string) {
+// sendResetEmail delivers inside the request: Cloud Run's request-billed CPU
+// leaves with the response, so a detached goroutine starves at scale-to-zero
+// and the member never receives the link. Guardrails mirror
+// register.sendRegistrationEmails: detached context (a client disconnect
+// can't abort delivery — the mailer's own timeout bounds the wait), panic
+// recovery that kills only this send, and a categorized failure audit; the
+// error is always swallowed so the handler's response stays byte-identical
+// for known and unknown addresses.
+func (r *DBPasswordResetter) sendResetEmail(ctx context.Context, user *types.User, token string) {
 	ctx = context.WithoutCancel(ctx)
-	go func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				r.logger.Error().Stack().
-					Str("email", "reset").
-					Int64("user_id", user.ID).
-					Interface("panic", rec).
-					Msg("panic during password reset email send")
-			}
-		}()
-
-		msg, err := r.tmpl.resetMessage(user, r.resetURL(token))
-		if err != nil {
-			r.recordSendFailure(ctx, user, err)
-			return
-		}
-		if err := r.mailer.Send(ctx, msg); err != nil {
-			r.recordSendFailure(ctx, user, err)
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.logger.Error().Stack().
+				Str("email", "reset").
+				Int64("user_id", user.ID).
+				Interface("panic", rec).
+				Msg("panic during password reset email send")
 		}
 	}()
+
+	msg, err := r.tmpl.resetMessage(user, r.resetURL(token))
+	if err != nil {
+		r.recordSendFailure(ctx, user, err)
+		return
+	}
+	if err := r.mailer.Send(ctx, msg); err != nil {
+		r.recordSendFailure(ctx, user, err)
+	}
 }
 
 func (r *DBPasswordResetter) recordSendFailure(ctx context.Context, user *types.User, err error) {
