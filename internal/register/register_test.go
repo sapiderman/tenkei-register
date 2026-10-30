@@ -561,6 +561,46 @@ func TestHandleSubmission_PhoneNormalizedToE164(t *testing.T) {
 	}
 }
 
+// TestEmailCase_RegistrationLowercaseAndDuplicate409 pins the storage rule
+// from migrations/000010 at the registration boundary: a mixed-case address
+// is stored lowercase, and a second registration differing only in case hits
+// the functional unique index and maps to the 409 the UI knows.
+func TestEmailCase_RegistrationLowercaseAndDuplicate409(t *testing.T) {
+	reg := newTestRegistrarDB(t)
+	db := reg.db
+	const stored = "mixedcase@example.com"
+	wipeUsers(t, db, stored, "+628123456790")
+
+	m := validPayloadMap()
+	m["email"] = "  MixedCase@Example.COM "
+	m["whatsapp"] = "+628123456790"
+
+	if w := doJSONRequest(t, reg, marshalJSON(m)); w.Code != http.StatusCreated {
+		t.Fatalf("mixed-case registration failed: %d: %s", w.Code, decodeError(t, w))
+	}
+
+	var got string
+	if err := db.NewRaw(`SELECT email FROM users WHERE email = ?`, stored).
+		Scan(context.Background(), &got); err != nil {
+		t.Fatalf("fetch stored email: %v", err)
+	}
+	if got != stored {
+		t.Errorf("stored email: want lowercase %q, got %q", stored, got)
+	}
+
+	m2 := validPayloadMap()
+	m2["email"] = "MIXEDCASE@example.com"
+	m2["whatsapp"] = "+628123456791"
+
+	w2 := doJSONRequest(t, reg, marshalJSON(m2))
+	if w2.Code != http.StatusConflict {
+		t.Fatalf("case-variant duplicate: want 409, got %d: %s", w2.Code, decodeError(t, w2))
+	}
+	if err := decodeError(t, w2); !strings.Contains(err, "already exists") {
+		t.Errorf("expected 'already exists' error, got %q", err)
+	}
+}
+
 // TestHandleSubmission_SuccessWithoutWhatsApp verifies WhatsApp is optional at
 // registration (PRD story 19): a payload omitting whatsapp still registers.
 func TestHandleSubmission_SuccessWithoutWhatsApp(t *testing.T) {

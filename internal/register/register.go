@@ -107,6 +107,10 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 	}
 
 	formData := sanitizeFormData(payload.RegistrationFormData)
+	// Email is the login identifier and must be case-insensitive. Store it
+	// lowercase so Andi@Example.com and andi@example.com are one account and
+	// every lookup matches (see migrations/000010 for the stored-data side).
+	formData.Email = strings.ToLower(formData.Email)
 	password := payload.Password
 	passwordConfirm := payload.PasswordConfirm
 

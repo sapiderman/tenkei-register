@@ -177,6 +177,26 @@ func TestDBUpdateUserProfile_DuplicateEmail(t *testing.T) {
 	}
 }
 
+// TestDBUpdateUserProfile_EmailCaseConflict pins the conflict rule from
+// migrations/000010: changing your own email to another member's address
+// that differs only in case is a conflict, because both spellings are the
+// same account.
+func TestDBUpdateUserProfile_EmailCaseConflict(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	_ = insertTestUser(t, db, "case-owner@example.com", "+628100000011", string(hash))
+	selfID := insertTestUser(t, db, "case-self@example.com", "+628100000012", string(hash))
+
+	a := &authenticator{logger: zerolog.Nop(), db: db}
+
+	req := &UpdateProfileRequest{Email: "Case-Owner@Example.COM"}
+	err := UpdateUserProfile(t.Context(), a.db, selfID, req)
+	if err != ErrUpdateConflict {
+		t.Errorf("case-variant email change: want ErrUpdateConflict, got %v", err)
+	}
+}
+
 func TestDBUpdateUserProfile_DuplicateWhatsApp_NoConflict(t *testing.T) {
 	db := setupTestDB(t)
 
