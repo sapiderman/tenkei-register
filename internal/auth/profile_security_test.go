@@ -4,11 +4,13 @@ package auth
 // password change). DB-backed tests skip cleanly without a DSN.
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -161,6 +163,31 @@ func TestHandleUpdateProfile_EmailUnchangedNeedsNoPassword(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleUpdateProfile_CategoryFieldsNeverLogged: guardian_name is
+// third-party PII (new-category.prd, security) — a profile write carrying the
+// category block must never put it in logs. university/school_name share the
+// same guarantee; the log path is shared, so one field proves the seam.
+func TestHandleUpdateProfile_CategoryFieldsNeverLogged(t *testing.T) {
+	a, db := newDBTestAuthenticator(t)
+	var logs bytes.Buffer
+	a.logger = zerolog.New(&logs)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "cat-pii@example.com", "+62877777779", string(hash))
+
+	body := `{"category":"kids","guardian_name":"Ibu Rahayu Sekali"}`
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/v1/auth/profile", strings.NewReader(body)), userID)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	a.handleUpdateProfile(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body: %s)", w.Code, w.Body.String())
+	}
+	if strings.Contains(logs.String(), "Ibu Rahayu Sekali") {
+		t.Fatalf("guardian name leaked into logs: %s", logs.String())
 	}
 }
 

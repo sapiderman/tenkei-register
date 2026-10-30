@@ -149,7 +149,7 @@ func TestDBListUsers_SummaryFieldsOnly(t *testing.T) {
 	// A user with PII-bearing fields set; the summary must not surface them.
 	id := insertUser(t, a.db, "Summary Fields", "summary-fields@example.com", types.RoleUser)
 	_, _ = a.db.NewRaw(
-		`UPDATE users SET medical_conditions='secret', emergency_contact_name='secret', date_of_birth='1990-01-01' WHERE id = ?`,
+		`UPDATE users SET medical_conditions='secret', emergency_contact_name='secret', date_of_birth='1990-01-01', category='kids' WHERE id = ?`,
 		id,
 	).Exec(t.Context())
 
@@ -166,6 +166,9 @@ func TestDBListUsers_SummaryFieldsOnly(t *testing.T) {
 	}
 	if m.Role != types.RoleUser {
 		t.Errorf("Role = %q", m.Role)
+	}
+	if m.Category != types.CategoryKids {
+		t.Errorf("Category = %q, want the stored category badge", m.Category)
 	}
 	// MemberSummary has no PII fields at the type level; this is a structural
 	// guarantee. If a PII field is ever added to MemberSummary, add an explicit

@@ -12,6 +12,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/internal/turnstile"
+	"github.com/sapiderman/tenkei-register/internal/types"
 	"github.com/uptrace/bun"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -520,6 +521,64 @@ func TestHandleUpdateProfile_Conflict(t *testing.T) {
 
 	if w.Code != http.StatusConflict {
 		t.Errorf("expected 409, got %d", w.Code)
+	}
+}
+
+// TestHandleUpdateProfile_CategoryFields_400 verifies the ErrCategoryFields
+// mapping: switching category without the required fields yields 400 and
+// persists nothing.
+func TestHandleUpdateProfile_CategoryFields_400(t *testing.T) {
+	a, db := newDBTestAuthenticator(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "cat-400@example.com", "+628500000011", string(hash))
+
+	body := `{"category":"student"}`
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/v1/auth/profile", strings.NewReader(body)), userID)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	a.handleUpdateProfile(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d (body: %s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "category") {
+		t.Errorf("error should mention the category mismatch, got %s", w.Body.String())
+	}
+	var category string
+	if err := db.NewRaw(`SELECT category FROM users WHERE id = ?`, userID).Scan(t.Context(), &category); err != nil {
+		t.Fatalf("read category: %v", err)
+	}
+	if category != types.CategoryRegular {
+		t.Errorf("rejected request must not persist: category = %q", category)
+	}
+}
+
+// TestHandleGetProfile_CategoryFieldsSerialization pins the outbound shape:
+// category is always present; the conditional fields round-trip.
+func TestHandleGetProfile_CategoryFieldsSerialization(t *testing.T) {
+	a, db := newDBTestAuthenticator(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "cat-get@example.com", "+628500000012", string(hash))
+	_, _ = db.NewRaw(
+		`UPDATE users SET category = 'kids', guardian_name = 'Ibu Sri' WHERE id = ?`, userID,
+	).Exec(t.Context())
+
+	req := withUserID(httptest.NewRequest("GET", "/v1/auth/profile", nil), userID)
+	w := httptest.NewRecorder()
+	a.handleGetProfile(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var prof map[string]any
+	if err := json.NewDecoder(w.Body).Decode(&prof); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if prof["category"] != "kids" || prof["guardian_name"] != "Ibu Sri" {
+		t.Errorf("category block not serialized: %v", prof)
+	}
+	if _, present := prof["university"]; present {
+		t.Errorf("empty university must be omitted, got %v", prof["university"])
 	}
 }
 

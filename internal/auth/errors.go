@@ -26,9 +26,10 @@ var (
 	// types.NormalizePhone for the exact rule.
 	ErrInvalidPhone = errors.New("invalid phone number")
 
-	// ErrFacultyMajorRequired is returned when a save would leave a member
-	// of the UI campus dojo without faculty or major.
-	ErrFacultyMajorRequired = errors.New("faculty and major are required for this dojo")
+	// ErrCategoryFields is returned when the saved row would violate the
+	// category rules (types.CategoryFieldsMissing): a category's required
+	// fields missing or another category's fields filled.
+	ErrCategoryFields = errors.New("fields do not match the selected category")
 
 	// Password reset token states (forgot/reset flow). Deliberately distinct:
 	// the handler maps them to stable 4xx codes the UI can map to "request a

@@ -12,5 +12,6 @@ func memberSummaryFromUser(u *types.User) MemberSummary {
 		WhatsApp: u.WhatsApp,
 		Dojo:     u.Dojo,
 		Role:     u.Role,
+		Category: u.Category,
 	}
 }

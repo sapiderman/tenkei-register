@@ -89,54 +89,72 @@ func TestDBUpdateUserProfile_BasicUpdate(t *testing.T) {
 	}
 }
 
-// TestDBUpdateUserProfile_FacultyMajorRule covers the shared post-state
-// invariant: members of the UI campus dojo cannot be saved without faculty
-// and major, however the gap arose (registration-era hole, dojo switch, or
-// partial update on an incomplete record).
-func TestDBUpdateUserProfile_FacultyMajorRule(t *testing.T) {
+// TestDBUpdateUserProfile_CategoryRule covers the shared post-state
+// invariant: the saved row must satisfy types.CategoryFieldsMissing for its
+// category, however the gap arose (category switch, partial update, or
+// legacy pre-category stray fields).
+func TestDBUpdateUserProfile_CategoryRule(t *testing.T) {
 	db := setupTestDB(t)
 	a := &authenticator{logger: zerolog.Nop(), db: db}
 
 	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
-	uiID := insertTestUser(t, db, "ui-rule@example.com", "+628170000001", string(hash))
-	_, err := db.NewRaw(`UPDATE users SET dojo = ? WHERE id = ?`, types.UIDojo, uiID).Exec(t.Context())
-	if err != nil {
-		t.Fatalf("set dojo: %v", err)
+	id := insertTestUser(t, db, "cat-clear@example.com", "+628170000011", string(hash))
+
+	// 1. Category switch student -> regular clears the whole block.
+	if err := UpdateUserProfile(t.Context(), a.db, id, &UpdateProfileRequest{
+		Category: types.CategoryStudent, University: "UI", Faculty: "Fakultas Teknik", Major: "Teknik Elektro",
+	}); err != nil {
+		t.Fatalf("set student: %v", err)
+	}
+	if err := UpdateUserProfile(t.Context(), a.db, id, &UpdateProfileRequest{Category: types.CategoryRegular}); err != nil {
+		t.Fatalf("switch to regular: %v", err)
+	}
+	u, _ := GetUserByID(t.Context(), a.db, id)
+	if u.Category != types.CategoryRegular || u.University != "" || u.Faculty != "" || u.Major != "" || u.SchoolName != "" || u.GuardianName != "" {
+		t.Errorf("student->regular must clear the block: %+v", u)
 	}
 
-	// 1. Incomplete UI member: even an unrelated update is rejected.
-	if err := UpdateUserProfile(t.Context(), a.db, uiID, &UpdateProfileRequest{Name: "Blocked"}); err != ErrFacultyMajorRequired {
-		t.Errorf("incomplete UI member: want ErrFacultyMajorRequired, got %v", err)
+	// 2. regular -> student school path sets the block.
+	if err := UpdateUserProfile(t.Context(), a.db, id, &UpdateProfileRequest{Category: types.CategoryStudent, SchoolName: "SMA Negeri 1"}); err != nil {
+		t.Fatalf("switch to student school path: %v", err)
+	}
+	u, _ = GetUserByID(t.Context(), a.db, id)
+	if u.Category != types.CategoryStudent || u.SchoolName != "SMA Negeri 1" || u.University != "" {
+		t.Errorf("regular->student(school): %+v", u)
 	}
 
-	// 2. Filling both fields completes the record and succeeds.
-	if err := UpdateUserProfile(t.Context(), a.db, uiID, &UpdateProfileRequest{Faculty: "Fakultas Teknik", Major: "Teknik Elektro"}); err != nil {
-		t.Fatalf("complete UI member update: %v", err)
+	// 3. Empty-category request leaves the block untouched.
+	if err := UpdateUserProfile(t.Context(), a.db, id, &UpdateProfileRequest{Name: "Renamed"}); err != nil {
+		t.Fatalf("unrelated update: %v", err)
 	}
-	u, _ := GetUserByID(t.Context(), a.db, uiID)
-	if u.Faculty != "Fakultas Teknik" || u.Major != "Teknik Elektro" || u.Name != "Test User" {
-		t.Errorf("fields not applied: name=%q faculty=%q major=%q", u.Name, u.Faculty, u.Major)
-	}
-
-	// 3. Complete UI member: unrelated updates pass again.
-	if err := UpdateUserProfile(t.Context(), a.db, uiID, &UpdateProfileRequest{Name: "Renamed"}); err != nil {
-		t.Fatalf("complete member rename: %v", err)
+	u, _ = GetUserByID(t.Context(), a.db, id)
+	if u.Category != types.CategoryStudent || u.SchoolName != "SMA Negeri 1" || u.Name != "Renamed" {
+		t.Errorf("empty category must not touch the block: %+v", u)
 	}
 
-	// 4. Switching a non-UI member onto the campus dojo without fields: rejected.
-	switchID := insertTestUser(t, db, "ui-switch@example.com", "+628170000002", string(hash))
-	if err := UpdateUserProfile(t.Context(), a.db, switchID, &UpdateProfileRequest{Dojo: types.UIDojo}); err != ErrFacultyMajorRequired {
-		t.Errorf("dojo switch without fields: want ErrFacultyMajorRequired, got %v", err)
+	// 4. Category switch with missing conditional fields -> ErrCategoryFields,
+	// and the rejected request persists nothing.
+	if err := UpdateUserProfile(t.Context(), a.db, id, &UpdateProfileRequest{Category: types.CategoryKids}); err != ErrCategoryFields {
+		t.Errorf("kids without guardian: want ErrCategoryFields, got %v", err)
 	}
-	if err := UpdateUserProfile(t.Context(), a.db, switchID, &UpdateProfileRequest{Dojo: types.UIDojo, Faculty: "Fakultas Hukum", Major: "Ilmu Hukum"}); err != nil {
-		t.Fatalf("dojo switch with fields: %v", err)
+	u, _ = GetUserByID(t.Context(), a.db, id)
+	if u.Category != types.CategoryStudent || u.SchoolName != "SMA Negeri 1" {
+		t.Errorf("rejected request must not persist: %+v", u)
 	}
 
-	// 5. Switching an incomplete UI member away from the campus dojo: allowed.
-	awayID := insertTestUser(t, db, "ui-away@example.com", "+628170000003", string(hash))
-	_, _ = db.NewRaw(`UPDATE users SET dojo = ? WHERE id = ?`, types.UIDojo, awayID).Exec(t.Context())
-	if err := UpdateUserProfile(t.Context(), a.db, awayID, &UpdateProfileRequest{Dojo: "Tenkei Natsu Aikidojo"}); err != nil {
-		t.Errorf("dojo switch away: want nil, got %v", err)
+	// 5. Legacy stray fields (pre-category rows): fail-closed on an unrelated
+	// edit until an explicit category block cleans them up.
+	legacy := insertTestUser(t, db, "cat-legacy@example.com", "+628170000012", string(hash))
+	_, _ = db.NewRaw(`UPDATE users SET faculty = 'Fakultas Teknik' WHERE id = ?`, legacy).Exec(t.Context())
+	if err := UpdateUserProfile(t.Context(), a.db, legacy, &UpdateProfileRequest{Name: "Blocked"}); err != ErrCategoryFields {
+		t.Errorf("legacy stray faculty: want ErrCategoryFields, got %v", err)
+	}
+	if err := UpdateUserProfile(t.Context(), a.db, legacy, &UpdateProfileRequest{Category: types.CategoryRegular}); err != nil {
+		t.Fatalf("category block clears legacy stray fields: %v", err)
+	}
+	u, _ = GetUserByID(t.Context(), a.db, legacy)
+	if u.Faculty != "" || u.Category != types.CategoryRegular {
+		t.Errorf("legacy cleanup: %+v", u)
 	}
 }
 

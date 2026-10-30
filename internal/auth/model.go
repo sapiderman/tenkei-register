@@ -35,6 +35,10 @@ type ProfileResponse struct {
 	Dojo                   string `json:"dojo"`
 	Faculty                string `json:"faculty,omitempty"`
 	Major                  string `json:"major,omitempty"`
+	Category               string `json:"category"`
+	University             string `json:"university,omitempty"`
+	SchoolName             string `json:"school_name,omitempty"`
+	GuardianName           string `json:"guardian_name,omitempty"`
 	Rank                   string `json:"rank"`
 	DateOfBirth            string `json:"date_of_birth,omitempty"`
 	JoinDate               string `json:"join_date"`
@@ -61,6 +65,10 @@ type UpdateProfileRequest struct {
 	Dojo                   string `json:"dojo,omitempty" validate:"omitempty,max=255"`
 	Faculty                string `json:"faculty,omitempty" validate:"omitempty,max=100"`
 	Major                  string `json:"major,omitempty" validate:"omitempty,max=100"`
+	Category               string `json:"category,omitempty" validate:"omitempty,oneof=regular student kids"`
+	University             string `json:"university,omitempty" validate:"omitempty,max=255"`
+	SchoolName             string `json:"school_name,omitempty" validate:"omitempty,max=255"`
+	GuardianName           string `json:"guardian_name,omitempty" validate:"omitempty,max=100"`
 	Rank                   string `json:"rank,omitempty"`
 	LastGradingDate        string `json:"last_grading_date,omitempty" validate:"omitempty,datetime=2006-01-02"`
 	MedicalConditions      string `json:"medical_conditions,omitempty" validate:"omitempty,max=2000"`
@@ -75,6 +83,14 @@ type UpdateProfileRequest struct {
 type PasswordChangeRequest struct {
 	CurrentPassword string `json:"current_password" validate:"required,max=72"`   // #nosec G117 — never logged
 	NewPassword     string `json:"new_password" validate:"required,min=8,max=72"` // #nosec G117 — never logged
+}
+
+// AccountDeletionRequest is the inbound payload for POST /v1/auth/delete
+// (GDPR erasure). The password gates the request; `code` is required only
+// when the member has TOTP enabled. Write-only, never logged (AGENTS.md rule 3).
+type AccountDeletionRequest struct {
+	CurrentPassword string `json:"current_password" validate:"required,max=72"` // #nosec G117 — never logged
+	Code            string `json:"code" validate:"omitempty,numeric,len=6"`
 }
 
 // ForgotPasswordRequest is the inbound payload for POST /v1/auth/forgot-password.

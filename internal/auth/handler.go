@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/sapiderman/tenkei-register/internal/server"
@@ -133,8 +134,8 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid phone number; use international format, e.g. +628123456789"})
 			return
 		}
-		if errors.Is(err, ErrFacultyMajorRequired) {
-			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "faculty and major are required for this dojo"})
+		if errors.Is(err, ErrCategoryFields) {
+			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "fields do not match the selected category"})
 			return
 		}
 		log.Error().Err(err).Int64("user_id", userID).Msg("profile update failed")
@@ -194,6 +195,62 @@ func (a *authenticator) handleLogoutAll(w http.ResponseWriter, r *http.Request) 
 	a.clearSessionCookie(w)
 	Audit(r.Context(), a.db, a.logger, userID, "logout_all")
 	log.Info().Int64("user_id", userID).Msg("all sessions invalidated")
+	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// handleDeleteAccount implements POST /v1/auth/delete: GDPR Art. 17 erasure.
+// Password re-verification gates the request (same posture as password
+// change); when the member has TOTP enabled, the current code is required
+// too. The hard DELETE cascades sessions and password-reset tokens
+// (migrations 000002/000006); the audit row has no FK and outlives the
+// user, so the reason below — written before the DELETE, email included —
+// is the only surviving record of who asked for the erasure.
+func (a *authenticator) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	userID := userIDFromContext(r.Context())
+
+	var req AccountDeletionRequest
+	if err := server.DecodeAndValidate(w, r, &req, a.validate); err != nil {
+		return // DecodeAndValidate writes the error response
+	}
+
+	user, err := GetUserByID(r.Context(), a.db, userID)
+	if err != nil {
+		log.Error().Err(err).Int64("user_id", userID).Msg("account deletion: user fetch failed")
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	// The session already identifies the user, so there is nothing to
+	// enumerate here: a plain wrong-password 403 is correct.
+	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)) != nil {
+		Audit(r.Context(), a.db, a.logger, userID, "data_deletion_rejected")
+		log.Warn().Int64("user_id", userID).Msg("account deletion rejected: wrong password")
+		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "current password verification failed"})
+		return
+	}
+
+	// Second factor when enrolled (mirrors 2FA disable). Skipped while the
+	// TOTP kill switch is off — password-only for everyone, same as login.
+	if a.totpKey != nil && user.TOTPEnabled && user.TOTPSecret != "" && !a.acceptTOTPCode(r.Context(), user, req.Code, time.Now()) {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid code"})
+		return
+	}
+
+	// Audit first: it records the *request* even if the delete then fails
+	// (500), and it must survive the user row it points at (no FK on
+	// audit.user_id by design). Raw email kept per GDPR accountability.
+	Audit(r.Context(), a.db, a.logger, userID, "data_deletion:email="+user.Email)
+
+	// Hard delete. Sessions and password-reset tokens go with it (ON DELETE
+	// CASCADE); audit rows intentionally remain.
+	if _, err := a.db.NewRaw(`DELETE FROM users WHERE id = ?`, userID).Exec(r.Context()); err != nil {
+		log.Error().Err(err).Int64("user_id", userID).Msg("account deletion failed")
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	a.clearSessionCookie(w)
+	log.Info().Int64("user_id", userID).Msg("account deleted (GDPR erasure)")
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
