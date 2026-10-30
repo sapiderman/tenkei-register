@@ -16,21 +16,29 @@ func TestNewRouter_RoutesRegistered(t *testing.T) {
 	cfg := &config.Config{Server: config.ServerConfig{TurnstileEnabled: false}}
 
 	// db is nil: none of the exercised paths touch the database
-	// (count is a stub, and an empty-body submission fails in DecodeJSON first).
+	// (count is asserted by route enumeration, and an empty-body submission
+	// fails in DecodeJSON first).
 	NewRouter(t.Context(), r, zerolog.Nop(), validator.New(), nil, cfg, &fakeMailer{})
 
-	// Count route wired: the stub handler returns 200 with an empty body.
-	req := httptest.NewRequest(http.MethodGet, "/v1/register/count", nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Errorf("count route: got %d, want 200", w.Code)
+	// Count route wired by enumeration, not execution: getUserCount needs a real db.
+	var countWired bool
+	err := chi.Walk(r, func(method, pattern string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		if method == http.MethodGet && pattern == "/v1/register/count" {
+			countWired = true
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk routes: %v", err)
+	}
+	if !countWired {
+		t.Error("count route not registered")
 	}
 
 	// Submission route wired: an empty body fails JSON decoding before any DB
 	// use, so a non-404 means the handler is mounted.
-	req = httptest.NewRequest(http.MethodPost, "/v1/register/", nil)
-	w = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/register/", nil)
+	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code == http.StatusNotFound {
 		t.Error("submission route: got 404, want the route to be wired")
@@ -53,10 +61,11 @@ func TestNewRouter_RateLimit(t *testing.T) {
 	NewRouter(t.Context(), r, zerolog.Nop(), validator.New(), nil, cfg, &fakeMailer{})
 
 	// The register group is rate-limited to 5/min per IP; the 6th request
-	// within the window is throttled.
+	// within the window is throttled. Probes POST with an empty body so the
+	// 400 lands in DecodeJSON before any db use.
 	var last int
 	for i := 0; i < 6; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/v1/register/count", nil)
+		req := httptest.NewRequest(http.MethodPost, "/v1/register/", nil)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 		last = w.Code
