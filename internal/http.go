@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -30,7 +29,6 @@ func NewHTTPHandler(ctx context.Context, db *database.Database, cfg *config.Conf
 	r.Use(middleware.Heartbeat("/health"))
 	r.Use(mymiddleware.XCFBypass(cfg.Server.XCFBypass))
 
-	r.Use(middleware.Timeout(60 * time.Second))
 	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
 
 	// Mailer selection matrix lives in mailer.New (disabled / Resend / Log /
