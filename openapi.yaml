@@ -476,7 +476,7 @@ components:
 
     RegisterRequest:
       type: object
-      required: [email, name, whatsapp, date_of_birth, dojo, rank, password, password_confirm, consent_datastore]
+      required: [email, name, password, password_confirm, consent_datastore]
       properties:
         email:                  { type: string, format: email }
         name:                   { type: string, maxLength: 255 }
