@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
+	"github.com/sapiderman/tenkei-register/internal/server"
 	"github.com/sapiderman/tenkei-register/internal/turnstile"
 	"github.com/sapiderman/tenkei-register/internal/types"
 	"github.com/uptrace/bun"
@@ -688,12 +689,12 @@ func TestMask(t *testing.T) {
 		{"", "***"},
 	}
 	for _, tt := range tests {
-		result := mask(tt.input)
+		result := server.Mask(tt.input)
 		if len(tt.input) <= 2 && result != "***" {
-			t.Errorf("mask(%q): expected all masked, got %q", tt.input, result)
+			t.Errorf("server.Mask(%q): expected all masked, got %q", tt.input, result)
 		}
 		if len(tt.input) > 2 && result != tt.expected {
-			t.Errorf("mask(%q): expected %q, got %q", tt.input, tt.expected, result)
+			t.Errorf("server.Mask(%q): expected %q, got %q", tt.input, tt.expected, result)
 		}
 	}
 }

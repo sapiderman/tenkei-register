@@ -15,6 +15,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/internal/mailer"
+	"github.com/sapiderman/tenkei-register/internal/server"
 )
 
 // fakeMailer is the register-package test double for mailer.Mailer.
@@ -268,7 +269,7 @@ func TestSendRegistrationEmails_BuildFailureAuditsBoth(t *testing.T) {
 
 	// The welcome failure log must carry the masked intended recipient
 	// (user.Email), never the zero-value welcome.To (which masks to "***").
-	wantTo := maskAddress(u.Email)
+	wantTo := server.Mask(u.Email)
 	for _, line := range bytes.Split(bytes.TrimRight(logBuf.Bytes(), "\n"), []byte("\n")) {
 		var rec struct {
 			Email string `json:"email"`
@@ -325,7 +326,7 @@ func TestRecordEmailFailure_LogsCategoryNotRawError(t *testing.T) {
 		if rec.Category != mailer.CategoryAuth {
 			t.Errorf("category = %q, want %q", rec.Category, mailer.CategoryAuth)
 		}
-		if want := maskAddress("test@example.com"); rec.To != want {
+		if want := server.Mask("test@example.com"); rec.To != want {
 			t.Errorf("to = %q, want %q", rec.To, want)
 		}
 		break
@@ -343,8 +344,8 @@ func TestMaskAddress(t *testing.T) {
 		{"", "***"},
 	}
 	for _, tc := range cases {
-		if got := maskAddress(tc.in); got != tc.want {
-			t.Errorf("maskAddress(%q) = %q, want %q", tc.in, got, tc.want)
+		if got := server.Mask(tc.in); got != tc.want {
+			t.Errorf("server.Mask(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

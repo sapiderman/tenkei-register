@@ -1,12 +1,16 @@
 package auth
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/sapiderman/tenkei-register/internal/types"
+)
 
 func TestAllowedRanks(t *testing.T) {
 	// Verify key ranks are present
 	ranks := []string{"", "6th Kyu", "Shodan (1st Dan)", "Godan (5th Dan)"}
 	for _, r := range ranks {
-		if !allowedRanks[r] {
+		if !types.AllowedRanks[r] {
 			t.Errorf("expected rank %q to be allowed", r)
 		}
 	}
