@@ -9,7 +9,7 @@ DATABASE_URL ?= postgres://db_user:db_password@127.0.0.1:5451/tenkei?sslmode=dis
 PG_CONTAINER ?= tenkei-postgres
 PG_USER ?= db_user
 PG_PASSWORD ?= db_password
-PG_PORT ?= 5452
+PG_PORT ?= 5451
 TEST_DB ?= tenkei_test
 
 .PHONY: all test test-db clean build docker
