@@ -67,11 +67,20 @@ paths:
     get:
       tags: [Register]
       summary: Total registered member count
-      description: Stub — handler is a TODO and currently returns an empty 200.
+      description: Public, rate-limited (5/min/IP) total of registered members.
       security: []
       responses:
         '200':
-          description: Currently unimplemented (empty body)
+          description: Total registered member count
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count: { type: integer, minimum: 0, description: Total registered members }
+        '500':
+          $ref: '#/components/responses/Internal'
 
   /v1/auth/login:
     post:

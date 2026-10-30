@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/config"
 	"github.com/sapiderman/tenkei-register/internal/database"
@@ -19,12 +18,7 @@ import (
 )
 
 type Server struct {
-	// Server fields
-	timeStart time.Time
-	handler   http.Handler
-	validator *validator.Validate
-	logger    *zerolog.Logger
-	database  *database.Database
+	handler http.Handler
 }
 
 func StartServer(ctx context.Context) {
@@ -52,13 +46,9 @@ func StartServer(ctx context.Context) {
 	}
 	zerolog.SetGlobalLevel(level)
 
-	server.timeStart = time.Now()
-	server.validator = validator.New()
-	server.database = db
-
-	server.handler, err = NewHTTPHandler(ctx, server.database, config)
+	server.handler, err = NewHTTPHandler(ctx, db, config)
 	if err != nil {
-		server.logger.Error().Err(err).Msg("Failed to initialize HTTP handler")
+		log.Error().Err(err).Msg("Failed to initialize HTTP handler")
 		return
 	}
 

@@ -47,6 +47,7 @@ func ClientIP(r *http.Request) string {
 // RateLimit returns a per-client-IP rate-limiting middleware. Identical to
 // httprate.LimitByIP except the bucket key is ClientIP (CF-aware) instead of
 // the socket address.
+// The limit is per instance: each Cloud Run instance buckets separately, with Cloudflare's edge rate limiting as the outer brake.
 func RateLimit(requests int, window time.Duration) func(next http.Handler) http.Handler {
 	keyFn := func(r *http.Request) (string, error) { return ClientIP(r), nil }
 	return httprate.Limit(requests, window, httprate.WithKeyFuncs(keyFn))
