@@ -3,7 +3,6 @@ package auth
 import (
 	"time"
 
-	"github.com/sapiderman/tenkei-register/internal/types"
 	"github.com/uptrace/bun"
 )
 
@@ -105,9 +104,6 @@ type ResetPasswordRequest struct {
 	Token       string `json:"token" validate:"required,max=128"`             // #nosec G117 — never logged
 	NewPassword string `json:"new_password" validate:"required,min=8,max=72"` // #nosec G117 — never logged
 }
-
-// allowedRanks delegates to the shared single source of truth in types.
-var allowedRanks = types.AllowedRanks
 
 const (
 	sessionCookieName = "tenkei_session"

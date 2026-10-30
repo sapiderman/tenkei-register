@@ -141,4 +141,32 @@ func TestDecodeAndValidate(t *testing.T) {
 			t.Error("expected error for trailing text, got nil")
 		}
 	})
+
+	// Pin the wire bytes: both rejection paths answer 400 with the exact
+	// decode error string, before validator output ever shapes the body.
+	t.Run("wire string for oversized body and trailing content", func(t *testing.T) {
+		cases := []struct{ name, body string }{
+			{"oversized body", strings.Repeat(`{"email":"test@example.com"}`, 50000)},
+			{"trailing content", `{"email":"test@example.com"}{"junk":true}`},
+		}
+		for _, tc := range cases {
+			req := httptest.NewRequest("POST", "/test", strings.NewReader(tc.body))
+			w := httptest.NewRecorder()
+
+			var target testReq
+			if err := DecodeAndValidate(w, req, &target, validate); err == nil {
+				t.Fatalf("%s: expected error, got nil", tc.name)
+			}
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("%s: expected status 400, got %d", tc.name, w.Code)
+			}
+			var res map[string]string
+			if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+				t.Fatalf("%s: failed to decode response: %v", tc.name, err)
+			}
+			if res["error"] != "invalid JSON payload" {
+				t.Errorf("%s: expected error %q, got %q", tc.name, "invalid JSON payload", res["error"])
+			}
+		}
+	})
 }

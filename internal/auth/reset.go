@@ -12,6 +12,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/internal/mailer"
+	"github.com/sapiderman/tenkei-register/internal/server"
 	"github.com/sapiderman/tenkei-register/internal/types"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/driver/pgdriver"
@@ -248,7 +249,7 @@ func (r *DBPasswordResetter) recordSendFailure(ctx context.Context, user *types.
 	category := mailer.CategoryOf(err)
 	r.logger.Error().
 		Str("email", "reset").
-		Str("to", mask(user.Email)).
+		Str("to", server.Mask(user.Email)).
 		Str("category", category).
 		Int64("user_id", user.ID).
 		Msg("password reset email send failed")
