@@ -11,6 +11,7 @@ import (
 const (
 	defaultPageSize = 25
 	maxPageSize     = 100
+	maxPage         = 1000000
 )
 
 // dbListUsers returns one page of member summaries plus the total matching
@@ -22,6 +23,10 @@ const (
 func (a *administrator) dbListUsers(ctx context.Context, viewerLevel int, search string, pendingOnly bool, page, size int) ([]MemberSummary, int64, error) {
 	if page < 1 {
 		page = 1
+	}
+	if page > maxPage {
+		// (page-1)*size must stay int64-positive: overflow makes OFFSET negative and Postgres 500s.
+		page = maxPage
 	}
 	if size < 1 {
 		size = defaultPageSize
