@@ -2,6 +2,7 @@ package database
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -27,6 +28,27 @@ func TestNew_Success(t *testing.T) {
 	}
 	if err := db.Close(); err != nil {
 		t.Errorf("Close: %v", err)
+	}
+}
+
+// TestNew_AttachesQueryHook proves the DB New returns carries the query
+// hook: WithQueryHook hooks a clone, so discarding its return value leaves
+// the hook dead and this buffer empty.
+func TestNew_AttachesQueryHook(t *testing.T) {
+	buf := captureLog(t)
+	db, err := New(testDSN(t))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	if _, err := db.DB.NewRaw("SELECT 1").Exec(t.Context()); err != nil {
+		t.Fatalf("SELECT 1: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, `"level":"debug"`) || !strings.Contains(out, `"message":"SELECT"`) {
+		t.Errorf("expected a debug log naming the SELECT operation, got: %s", out)
 	}
 }
 

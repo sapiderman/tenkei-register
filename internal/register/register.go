@@ -293,7 +293,9 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 			r.logger.Warn().Caller().Msg("registration rejected: duplicate email")
 			server.WriteJSON(w, http.StatusConflict, map[string]string{"error": "An account with this email already exists."})
 		} else {
-			fail(http.StatusInternalServerError, "Registration failed. Please try again later.", err)
+			// The wrapped driver error is not logged: Postgres can embed member
+			// values in it. The query hook already records the SQLSTATE for triage.
+			fail(http.StatusInternalServerError, "Registration failed. Please try again later.", nil)
 		}
 		return
 	}

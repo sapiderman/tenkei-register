@@ -18,7 +18,9 @@ type Database struct {
 
 func New(dsn string) (*Database, error) {
 	db := bun.NewDB(sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn))), pgdialect.New())
-	db.WithQueryHook(&queryHook{})
+	// WithQueryHook clones the DB and hooks the clone; the receiver is
+	// returned unmodified, so the return value must be captured.
+	db = db.WithQueryHook(&queryHook{})
 	if err := db.Ping(); err != nil {
 		log.Error().Caller().Err(err).Msg("failed to ping database")
 		return nil, err
