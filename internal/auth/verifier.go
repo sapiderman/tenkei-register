@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"github.com/sapiderman/tenkei-register/internal/types"
@@ -58,9 +59,13 @@ func (v *BcryptVerifier) Verify(ctx context.Context, identifier, password string
 	return user.ID, v.totpEnable && user.TOTPEnabled, nil
 }
 
-// findUserByEmail looks up a user by email. WhatsApp is deliberately NOT a
-// login identifier (PRD: email is the sole login key), so a WhatsApp number
-// can never resolve to an account or be used to probe one.
+// findUserByEmail looks up a user by email, matching case-insensitively
+// (lower(email) = lowered input) so the member can type their address in any
+// case; the stored value is lowercase since migrations/000010, and lower()
+// on both sides keeps pre-migration mixed-case rows matchable too.
+// WhatsApp is deliberately NOT a login identifier (PRD: email is the sole
+// login key), so a WhatsApp number can never resolve to an account or be
+// used to probe one.
 // Returns ErrInvalidCredentials when the user is not found (prevents enumeration).
 // Returns the raw error for all other failures (DB connectivity, timeouts, etc.)
 // so the caller can surface them as 500 instead of masking outages.
@@ -68,7 +73,7 @@ func (v *BcryptVerifier) findUserByEmail(ctx context.Context, identifier string)
 	var user types.User
 	err := v.db.NewSelect().
 		Model(&user).
-		Where("email = ?", identifier).
+		Where("lower(email) = ?", strings.ToLower(strings.TrimSpace(identifier))).
 		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

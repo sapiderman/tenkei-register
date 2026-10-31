@@ -43,11 +43,17 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 	if req.Name != "" {
 		user.Name = req.Name
 	}
-	if req.Email != "" && req.Email != user.Email {
+	if req.Email != "" && !strings.EqualFold(req.Email, user.Email) {
+		// Emails are stored lowercase and compared case-insensitively
+		// (migrations/000010), so lowercase the request value before the
+		// conflict check and the assignment — "New@Example.com" must collide
+		// with "new@example.com", not slip past the count and then fail (or
+		// worse, succeed against a pre-migration mixed-case row).
+		email := strings.ToLower(req.Email)
 		// WhatsApp is no longer unique; only email is checked for conflicts.
 		count, err := db.NewSelect().
 			Model((*types.User)(nil)).
-			Where("email = ? AND id != ?", req.Email, userID).
+			Where("lower(email) = ? AND id != ?", email, userID).
 			Count(ctx)
 		if err != nil {
 			return err
@@ -55,7 +61,7 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 		if count > 0 {
 			return ErrUpdateConflict
 		}
-		user.Email = req.Email
+		user.Email = email
 	}
 	if req.WhatsApp != "" {
 		// WhatsApp is not unique and not a login identifier — no conflict check.

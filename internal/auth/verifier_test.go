@@ -121,6 +121,29 @@ func TestBcryptVerifier_DatabaseError(t *testing.T) {
 	}
 }
 
+// TestBcryptVerifier_LoginEmailCaseInsensitive pins the login lookup rule
+// from migrations/000010: the identifier is lowered and matched on
+// lower(email), so a member registered as andi@example.com logs in typing
+// Andi@Example.com.
+func TestBcryptVerifier_LoginEmailCaseInsensitive(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("correctpassword"), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+	userID := insertTestUser(t, db, "case-login@example.com", "+62811111112", string(hash))
+
+	v := NewBcryptVerifier(db, false)
+	gotID, _, err := v.Verify(t.Context(), "  Case-Login@Example.COM ", "correctpassword")
+	if err != nil {
+		t.Fatalf("Verify() with wrong-case identifier: %v", err)
+	}
+	if gotID != userID {
+		t.Errorf("expected userID %d, got %d", userID, gotID)
+	}
+}
+
 // TestDummyHash_Cost guards the anti-timing-enumeration constant. If dummyHash
 // were malformed, bcrypt.CompareHashAndPassword would fail instantly on the
 // not-found path and the timing leak would silently return. Cost must match

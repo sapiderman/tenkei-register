@@ -107,7 +107,11 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 	// ownership with the current password — a stolen session cookie must not
 	// be able to silently re-point the account to an attacker-controlled
 	// address (lockout + persistence).
-	emailChanged := req.Email != "" && req.Email != user.Email
+	// Case-only resubmission of one's own address is a no-op: emails are
+	// stored lowercase (migrations/000010), so a case-variant of the stored
+	// value writes nothing — it must not trigger password re-entry, session
+	// invalidation, or an email_change audit.
+	emailChanged := req.Email != "" && !strings.EqualFold(req.Email, user.Email)
 	if emailChanged {
 		if req.CurrentPassword == "" {
 			server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "current_password is required to change email"})

@@ -80,10 +80,13 @@ func NewDBPasswordResetter(db *bun.DB, sessions SessionStore, mail mailer.Mailer
 // existence, and a delay floor would bill every unknown-address requester
 // to hide information that is already public.
 func (r *DBPasswordResetter) RequestReset(ctx context.Context, identifier string) error {
-	email := strings.TrimSpace(identifier)
+	// Case-insensitive lookup (lower(email) = lowered input): the stored value
+	// is lowercase since migrations/000010, but lowering both sides keeps
+	// pre-migration mixed-case rows requestable too.
+	email := strings.ToLower(strings.TrimSpace(identifier))
 
 	var user types.User
-	err := r.db.NewSelect().Model(&user).Where("email = ?", email).Scan(ctx)
+	err := r.db.NewSelect().Model(&user).Where("lower(email) = ?", email).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
