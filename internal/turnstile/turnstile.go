@@ -11,12 +11,17 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/sapiderman/tenkei-register/internal/middleware"
 )
 
 const defaultVerifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+// verifyClient bounds every siteverify call — http.PostForm used the zero-value
+// client, so a slow siteverify could wedge login and register indefinitely.
+var verifyClient = &http.Client{Timeout: 5 * time.Second}
 
 // Verifier validates Cloudflare Turnstile tokens against the siteverify API.
 type Verifier struct {
@@ -28,6 +33,10 @@ type Verifier struct {
 	// falls back to the real URL in Verify; tests set this to a
 	// httptest.Server URL.
 	VerifyURL string
+
+	// Client overrides the HTTP client used for the siteverify call. Zero
+	// value falls back to verifyClient; tests inject a short-timeout client.
+	Client *http.Client
 }
 
 // New builds a Verifier from server config values.
@@ -74,7 +83,17 @@ func (v *Verifier) Verify(req *http.Request, token string) error {
 	if verifyURL == "" {
 		verifyURL = defaultVerifyURL
 	}
-	resp, err := http.PostForm(verifyURL, form) // #nosec G107,G704 — verifyURL is config-derived (TENKEI_SERVER_TURNSTILE_*), never request-controlled
+	client := v.Client
+	if client == nil {
+		client = verifyClient
+	}
+	httpReq, err := http.NewRequestWithContext(req.Context(), http.MethodPost, verifyURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		v.logger.Error().Err(err).Msg("Turnstile request build failed")
+		return err
+	}
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := client.Do(httpReq) // #nosec G107,G704 — verifyURL is config-derived (TENKEI_SERVER_TURNSTILE_*), never request-controlled
 	if err != nil {
 		v.logger.Error().
 			Err(err).

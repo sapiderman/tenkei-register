@@ -267,16 +267,38 @@ func TestUpdateMember_RoleStructurallyAbsent(t *testing.T) {
 	}
 }
 
-func TestUpdateMember_DuplicateEmail_409(t *testing.T) {
+// TestUpdateMember_EmailRejected_400: the admin path rejects any body carrying
+// an email before any DB work — the admin email takeover (rewrite the address,
+// then request a reset for it) dies here, and no field is applied.
+func TestUpdateMember_EmailRejected_400(t *testing.T) {
 	a, r := newAdminMux(t)
 	insertUser(t, a.db, "Owner", "dup-owner@example.com", types.RoleUser)
-	tid := insertUser(t, a.db, "Target", "dup-target@example.com", types.RoleUser)
+	tid := insertUser(t, a.db, "Target", "email-reject@example.com", types.RoleUser)
 
-	req := withViewer(newReq(http.MethodPut, fmt.Sprintf("/users/%d", tid), `{"email":"dup-owner@example.com"}`), 1, types.RoleAdmin)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusConflict {
-		t.Errorf("duplicate email: got %d, want 409", w.Code)
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"fresh address", `{"email":"new-address@example.com"}`},
+		{"duplicate address", `{"email":"dup-owner@example.com"}`},
+		{"email alongside other fields", `{"name":"Edited","email":"new-address@example.com"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := withViewer(newReq(http.MethodPut, fmt.Sprintf("/users/%d", tid), tc.body), 1, types.RoleAdmin)
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("got %d, want 400 (body=%s)", w.Code, w.Body.String())
+			}
+			u, _ := auth.GetUserByID(t.Context(), a.db, tid)
+			if u.Email != "email-reject@example.com" {
+				t.Errorf("stored email mutated to %q", u.Email)
+			}
+			if u.Name != "Target" {
+				t.Errorf("name applied alongside rejected email: %q", u.Name)
+			}
+		})
 	}
 }
 

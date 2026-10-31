@@ -86,7 +86,8 @@ func (a *administrator) handleGetMember(w http.ResponseWriter, r *http.Request) 
 // handleUpdateMember handles PUT /v1/admin/users/:id. It uses the same field
 // whitelist and validation as self-profile (auth.UpdateProfileRequest has role
 // structurally absent), so an admin corrects a member exactly as a member
-// edits themselves. The scope check and the write run as one atomic
+// edits themselves — except email, which this endpoint rejects (see guard
+// below). The scope check and the write run as one atomic
 // transaction (updateMemberForViewer): out-of-scope targets return 404 and a
 // concurrent role change cannot let an admin edit a promoted target.
 func (a *administrator) handleUpdateMember(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +100,13 @@ func (a *administrator) handleUpdateMember(w http.ResponseWriter, r *http.Reques
 	var req auth.UpdateProfileRequest
 	if err := server.DecodeAndValidate(w, r, &req, a.validate); err != nil {
 		return // DecodeAndValidate writes the response
+	}
+
+	// An admin-set email re-arms account takeover (rewrite the address, then
+	// request a password reset for it); only the member may change their own.
+	if req.Email != "" {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "email cannot be changed here; the member must change it from their own profile"})
+		return
 	}
 
 	if err := updateMemberForViewer(r.Context(), a.db, viewerLevel, targetID, &req); err != nil {
