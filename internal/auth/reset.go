@@ -48,7 +48,9 @@ const (
 // DBPasswordResetter implements PasswordResetter over PostgreSQL + the
 // shared mailer. The forgot endpoint's enumeration posture lives here:
 // an unknown email is a silent no-op, and send failures never change what
-// the caller sees.
+// the caller sees. The guarantee is response-byte identity, not wall-clock
+// — a known address waits on the mailer send, an unknown one does not
+// (see sendResetEmail for why that trade is accepted).
 type DBPasswordResetter struct {
 	db       *bun.DB
 	sessions SessionStore
@@ -72,7 +74,11 @@ func NewDBPasswordResetter(db *bun.DB, sessions SessionStore, mail mailer.Mailer
 
 // RequestReset generates and delivers a reset token for the given email.
 // Unknown emails return nil — the handler's response is byte-identical
-// either way, so nothing here may leak existence.
+// either way, so nothing here may leak existence in the response bytes.
+// Wall-clock does differ (the send below runs only for known addresses):
+// accepted because registration's duplicate-email 409 already discloses
+// existence, and a delay floor would bill every unknown-address requester
+// to hide information that is already public.
 func (r *DBPasswordResetter) RequestReset(ctx context.Context, identifier string) error {
 	email := strings.TrimSpace(identifier)
 
@@ -94,7 +100,7 @@ func (r *DBPasswordResetter) RequestReset(ctx context.Context, identifier string
 
 	Audit(ctx, r.db, r.logger, user.ID, "password_reset_requested")
 
-	r.sendResetEmailAsync(ctx, &user, token)
+	r.sendResetEmail(ctx, &user, token)
 	return nil
 }
 
@@ -211,33 +217,36 @@ func (r *DBPasswordResetter) classifyToken(ctx context.Context, token string) er
 	return ErrResetTokenExpired
 }
 
-// sendResetEmailAsync delivers the reset email without blocking the 200
-// response. Guardrails mirror register.sendRegistrationEmails: detached
-// context (a client disconnect can't abort delivery), panic recovery that
-// kills only this send, and categorized failure logging + audit. The audit
-// row carries only the category — no addresses, no token.
-func (r *DBPasswordResetter) sendResetEmailAsync(ctx context.Context, user *types.User, token string) {
+// sendResetEmail delivers inside the request: Cloud Run's request-billed CPU
+// leaves with the response, so a detached goroutine starves at scale-to-zero
+// and the member never receives the link. Guardrails mirror
+// register.sendRegistrationEmails: detached context (a client disconnect
+// can't abort delivery — the mailer's own timeout bounds the wait), panic
+// recovery that kills only this send, and a categorized failure audit; the
+// error is always swallowed so the handler's response stays byte-identical
+// for known and unknown addresses. The inline wait is the accepted cost:
+// it makes known-address requests measurably slower than unknown ones, an
+// enumeration signal already public via registration's 409.
+func (r *DBPasswordResetter) sendResetEmail(ctx context.Context, user *types.User, token string) {
 	ctx = context.WithoutCancel(ctx)
-	go func() {
-		defer func() {
-			if rec := recover(); rec != nil {
-				r.logger.Error().Stack().
-					Str("email", "reset").
-					Int64("user_id", user.ID).
-					Interface("panic", rec).
-					Msg("panic during password reset email send")
-			}
-		}()
-
-		msg, err := r.tmpl.resetMessage(user, r.resetURL(token))
-		if err != nil {
-			r.recordSendFailure(ctx, user, err)
-			return
-		}
-		if err := r.mailer.Send(ctx, msg); err != nil {
-			r.recordSendFailure(ctx, user, err)
+	defer func() {
+		if rec := recover(); rec != nil {
+			r.logger.Error().Stack().
+				Str("email", "reset").
+				Int64("user_id", user.ID).
+				Interface("panic", rec).
+				Msg("panic during password reset email send")
 		}
 	}()
+
+	msg, err := r.tmpl.resetMessage(user, r.resetURL(token))
+	if err != nil {
+		r.recordSendFailure(ctx, user, err)
+		return
+	}
+	if err := r.mailer.Send(ctx, msg); err != nil {
+		r.recordSendFailure(ctx, user, err)
+	}
 }
 
 func (r *DBPasswordResetter) recordSendFailure(ctx context.Context, user *types.User, err error) {

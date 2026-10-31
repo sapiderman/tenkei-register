@@ -22,8 +22,10 @@ import (
 
 // captureMailer records every sent message — the test double of LogMailer:
 // the E2E flow "extracts the token from the mailer output" exactly as a
-// developer would from the dev log. Sends are asynchronous in production
-// (the 200 never waits), so tests use waitEmails to join the goroutine.
+// developer would from the dev log. Sends are synchronous in production
+// (the send rides the request that asked for it), so a count read after
+// RequestReset returns is final; waitEmails stays for back-to-back token
+// extraction.
 type captureMailer struct {
 	mu   sync.Mutex
 	sent []mailer.Message
@@ -51,6 +53,19 @@ func (m *captureMailer) waitEmails(n int) int {
 		time.Sleep(5 * time.Millisecond)
 	}
 	return m.count()
+}
+
+// failingMailer fails every Send with a categorizable error, counting
+// calls. No mutex on purpose: the send is synchronous, so a data race here
+// is exactly the regression this suite must catch.
+type failingMailer struct {
+	err   error
+	calls int
+}
+
+func (m *failingMailer) Send(_ context.Context, _ mailer.Message) error {
+	m.calls++
+	return m.err
 }
 
 // resetTestHarness wires a real DBPasswordResetter + authenticator over the
@@ -181,8 +196,7 @@ func TestRequestReset_SupersedeAndUnknownEmail(t *testing.T) {
 		t.Errorf("superseded token: got %v, want ErrResetTokenInvalid", err)
 	}
 
-	// Unknown email: silent no-op — no error, no rows, no email. Give the
-	// async send goroutine a beat to (incorrectly) fire before asserting.
+	// Unknown email: silent no-op — no error, no rows, no email.
 	if err := r.RequestReset(ctx, "ghost@test.dev"); err != nil {
 		t.Errorf("unknown email: got %v, want nil", err)
 	}
@@ -193,7 +207,6 @@ func TestRequestReset_SupersedeAndUnknownEmail(t *testing.T) {
 	if total != 1 {
 		t.Errorf("token rows after unknown-email request = %d, want 1", total)
 	}
-	time.Sleep(100 * time.Millisecond)
 	if got := h.mail.count(); got != 2 {
 		t.Errorf("emails sent = %d, want 2 (no email for unknown address)", got)
 	}
@@ -334,6 +347,78 @@ func TestForgotPasswordHandler_GenericPosture(t *testing.T) {
 	}
 	if !strings.Contains(known.Body.String(), "If an account exists") {
 		t.Errorf("generic message missing: %q", known.Body.String())
+	}
+}
+
+// A send failure must be swallowed end to end: the store returns nil, the
+// audit table gains the categorized failure row, and the handler's response
+// stays byte-identical to the unknown-address posture.
+func TestRequestReset_FailingMailerSwallowed(t *testing.T) {
+	db := setupTestDB(t)
+	userID := insertTestUser(t, db, "reset-fail@test.dev", "+62811000009", "$2a$10$oSZtgXPD6IB81wO8lrIbdulYN7cIawVnkgvcgd0InAI/9WSY8XeH6")
+	mail := &failingMailer{err: &mailer.SendError{Category: mailer.CategoryNetwork, Err: errors.New("connection refused")}}
+	r := NewDBPasswordResetter(db, NewDBSessionStore(db), mail, zerolog.Nop(), "https://web.test")
+
+	if err := r.RequestReset(t.Context(), "reset-fail@test.dev"); err != nil {
+		t.Fatalf("RequestReset with failing mailer: got %v, want nil", err)
+	}
+	if mail.calls != 1 {
+		t.Errorf("send calls = %d, want 1", mail.calls)
+	}
+	var actions []string
+	if err := db.NewRaw(`SELECT action FROM audit WHERE user_id = ? ORDER BY id`, userID).Scan(t.Context(), &actions); err != nil {
+		t.Fatalf("fetch audits: %v", err)
+	}
+	if len(actions) < 2 || actions[0] != "password_reset_requested" || actions[1] != "email_send_failed:reset:network" {
+		t.Errorf("audit trail = %v, want prefix [password_reset_requested email_send_failed:reset:network]", actions)
+	}
+
+	a := &authenticator{
+		logger:    zerolog.Nop(),
+		validate:  validator.New(),
+		db:        db,
+		resetter:  r,
+		turnstile: turnstile.New("", false, zerolog.Nop()),
+	}
+	router := chi.NewRouter()
+	router.Post("/v1/auth/forgot-password", a.handleForgotPassword)
+	post := func(email string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/auth/forgot-password",
+			strings.NewReader(`{"email":"`+email+`","cf_turnstile_response":"bypassed"}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+		return w
+	}
+	known := post("reset-fail@test.dev")
+	unknown := post("ghost@test.dev")
+	if known.Code != http.StatusOK || unknown.Code != http.StatusOK {
+		t.Fatalf("got %d/%d, want 200/200", known.Code, unknown.Code)
+	}
+	if known.Body.String() != unknown.Body.String() {
+		t.Errorf("failing send changed the response:\nknown:   %q\nunknown: %q", known.Body.String(), unknown.Body.String())
+	}
+	if mail.calls != 2 {
+		t.Errorf("send calls after handler posts = %d, want 2 (one per known request, none for unknown)", mail.calls)
+	}
+}
+
+// The send rides the request: when RequestReset returns, the email is
+// already out the door and no goroutine can deliver a late second one.
+func TestRequestReset_SynchronousSend(t *testing.T) {
+	h := newResetTestHarness(t)
+	insertTestUser(t, h.db, "reset-sync@test.dev", "+62811000010", "$2a$10$oSZtgXPD6IB81wO8lrIbdulYN7cIawVnkgvcgd0InAI/9WSY8XeH6")
+	r := NewDBPasswordResetter(h.db, NewDBSessionStore(h.db), h.mail, zerolog.Nop(), "https://web.test")
+
+	if err := r.RequestReset(t.Context(), "reset-sync@test.dev"); err != nil {
+		t.Fatalf("RequestReset: %v", err)
+	}
+	if got := h.mail.count(); got != 1 {
+		t.Fatalf("emails at return = %d, want 1 (send must complete before RequestReset returns)", got)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if got := h.mail.count(); got != 1 {
+		t.Errorf("emails after wait = %d, want 1 (no deferred send may fire)", got)
 	}
 }
 
