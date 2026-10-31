@@ -197,6 +197,31 @@ func TestDBUpdateUserProfile_EmailCaseConflict(t *testing.T) {
 	}
 }
 
+// TestDBUpdateUserProfile_CaseOnlyEmailUnchanged pins the database-side
+// guard: a case-only variant of the member's own email is a no-op — no
+// conflict query, no write; the stored lowercase value stands.
+func TestDBUpdateUserProfile_CaseOnlyEmailUnchanged(t *testing.T) {
+	db := setupTestDB(t)
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "case-self-own@example.com", "+628100000013", string(hash))
+
+	a := &authenticator{logger: zerolog.Nop(), db: db}
+
+	req := &UpdateProfileRequest{Email: "Case-Self-Own@Example.COM"}
+	if err := UpdateUserProfile(t.Context(), a.db, userID, req); err != nil {
+		t.Fatalf("case-only email resubmission: %v", err)
+	}
+
+	user, err := GetUserByID(t.Context(), a.db, userID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if user.Email != "case-self-own@example.com" {
+		t.Errorf("stored email: got %q, want case-self-own@example.com", user.Email)
+	}
+}
+
 func TestDBUpdateUserProfile_DuplicateWhatsApp_NoConflict(t *testing.T) {
 	db := setupTestDB(t)
 
