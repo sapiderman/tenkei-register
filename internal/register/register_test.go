@@ -623,7 +623,7 @@ func TestHandleSubmission_SuccessWithoutWhatsApp(t *testing.T) {
 func TestGetUserCount(t *testing.T) {
 	reg := newTestRegistrarDB(t)
 	db := reg.db
-	const email = "count-user@example.com"
+	const email = "test@example.com"
 	wipeUsers(t, db, email, "+6281234567890")
 
 	if w := doJSONRequest(t, reg, marshalJSON(validPayloadMap())); w.Code != http.StatusCreated {
