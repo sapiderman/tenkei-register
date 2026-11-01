@@ -44,9 +44,6 @@ lint:
 test-short: lint
 	go test ./... -v -covermode=count -coverprofile=coverage.out -short
 
-proto: lint
-	protoc --go_out=. --go_opt=paths=source_relative ./internal/proto/user.proto
-
 test: lint
 	go test ./... -v -race -covermode=atomic -coverprofile=coverage.out
 

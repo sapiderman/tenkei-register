@@ -174,20 +174,6 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 	return nil
 }
 
-// UpdateUserProfile loads a user by id and applies a partial update. This is
-// the self-profile path (no scope guard, no row lock).
-func UpdateUserProfile(ctx context.Context, db *bun.DB, userID int64, req *UpdateProfileRequest) error {
-	var user types.User
-	err := db.NewSelect().
-		Model(&user).
-		Where("id = ?", userID).
-		Scan(ctx)
-	if err != nil {
-		return ErrUserNotFound
-	}
-	return ApplyProfileUpdate(ctx, db, &user, req)
-}
-
 // UpdateUserPassword sets a user's password hash by id (self-service
 // password change). Column-explicit, like ApplyProfileUpdate.
 func UpdateUserPassword(ctx context.Context, db *bun.DB, userID int64, passwordHash string) error {
