@@ -8,6 +8,7 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/sapiderman/tenkei-register/internal/server"
+	"github.com/sapiderman/tenkei-register/internal/types"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -33,7 +34,7 @@ func (a *authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, ErrInvalidCredentials) {
 			Audit(r.Context(), a.db, a.logger, 0, "login_failed")
-			log.Warn().Str("identifier", mask(req.Identifier)).Msg("login failed")
+			log.Warn().Str("identifier", server.Mask(req.Identifier)).Msg("login failed")
 			server.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid credentials"})
 			return
 		}
@@ -87,7 +88,7 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Validate rank if provided
-	if req.Rank != "" && !allowedRanks[req.Rank] {
+	if req.Rank != "" && !types.AllowedRanks[req.Rank] {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid rank"})
 		return
 	}
@@ -341,7 +342,7 @@ func (a *authenticator) handleForgotPassword(w http.ResponseWriter, r *http.Requ
 	if err := a.resetter.RequestReset(r.Context(), req.Email); err != nil {
 		// Infrastructure failure only — unknown emails return nil. A 500 here
 		// says nothing about whether the address exists.
-		log.Error().Err(err).Str("email", mask(req.Email)).Msg("forgot-password request failed")
+		log.Error().Err(err).Str("email", server.Mask(req.Email)).Msg("forgot-password request failed")
 		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 		return
 	}
@@ -378,14 +379,4 @@ func (a *authenticator) handleResetPassword(w http.ResponseWriter, r *http.Reque
 	}
 
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
-}
-
-// mask partially hides sensitive identifiers in logs.
-// "test@example.com" → "t***************m"
-// "+62812345678" → "+**********8"
-func mask(s string) string {
-	if len(s) <= 2 {
-		return "***"
-	}
-	return s[:1] + strings.Repeat("*", len(s)-2) + s[len(s)-1:]
 }

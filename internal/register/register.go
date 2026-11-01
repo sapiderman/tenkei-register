@@ -3,9 +3,7 @@ package register
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -91,18 +89,9 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 		PasswordConfirm      string `json:"password_confirm" validate:"required"` // #nosec G117
 	}
 
-	req.Body = http.MaxBytesReader(w, req.Body, 1<<20)
 	var payload apiRegistrationRequest
-	decoder := json.NewDecoder(req.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
+	if err := server.DecodeJSONWithMessage(w, req, &payload, "Invalid JSON payload"); err != nil {
 		r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
-		return
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		r.logger.Warn().Caller().Err(err).Msg("invalid JSON payload")
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "Invalid JSON payload"})
 		return
 	}
 
@@ -317,16 +306,6 @@ func (r *registrar) getUserCount(w http.ResponseWriter, req *http.Request) {
 	// TODO: Implement user count endpoint
 }
 
-// maskAddress partially hides an email address in logs (mirrors auth.mask):
-// "user@example.com" → "u*************m". AGENTS.md Rule 3: keep raw
-// identifiers out of logs; the audit row carries only user_id + category.
-func maskAddress(s string) string {
-	if len(s) <= 2 {
-		return "***"
-	}
-	return s[:1] + strings.Repeat("*", len(s)-2) + s[len(s)-1:]
-}
-
 // sendRegistrationEmails delivers the welcome and admin-notice emails after a
 // successful registration insert.
 //
@@ -404,7 +383,7 @@ func (r *registrar) recordEmailFailure(ctx context.Context, user *User, which, t
 	category := mailer.CategoryOf(err)
 	r.logger.Error().
 		Str("email", which).
-		Str("to", maskAddress(to)).
+		Str("to", server.Mask(to)).
 		Str("category", category).
 		Int64("user_id", user.ID).
 		Msg("registration email send failed")

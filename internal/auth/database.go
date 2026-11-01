@@ -93,7 +93,7 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 		user.GuardianName = req.GuardianName
 	}
 	if req.Rank != "" {
-		if !allowedRanks[req.Rank] {
+		if !types.AllowedRanks[req.Rank] {
 			return ErrInvalidRank
 		}
 		user.Rank = req.Rank
