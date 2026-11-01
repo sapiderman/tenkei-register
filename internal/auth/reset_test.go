@@ -264,6 +264,31 @@ func TestRequestReset_OneLiveTokenPerUser(t *testing.T) {
 	}
 }
 
+// TestRequestReset_EmailCaseInsensitive pins the lookup rule from
+// migrations/000010: a mixed-case identifier must reach the lowercase
+// stored row and still issue a token (and an email).
+func TestRequestReset_EmailCaseInsensitive(t *testing.T) {
+	h := newResetTestHarness(t)
+	ctx := t.Context()
+	userID := insertTestUser(t, h.db, "reset-case@test.dev", "+62811000003", "$2a$10$oSZtgXPD6IB81wO8lrIbdulYN7cIawVnkgvcgd0InAI/9WSY8XeH6")
+	r := NewDBPasswordResetter(h.db, NewDBSessionStore(h.db), h.mail, zerolog.Nop(), "https://web.test")
+
+	if err := r.RequestReset(ctx, "  Reset-Case@Test.DEV "); err != nil {
+		t.Fatalf("mixed-case RequestReset: %v", err)
+	}
+
+	var count int
+	if err := h.db.NewRaw(`SELECT count(*) FROM password_reset_tokens WHERE user_id = ?`, userID).Scan(ctx, &count); err != nil {
+		t.Fatalf("count tokens: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("token rows = %d, want 1 (mixed-case identifier must match)", count)
+	}
+	if got := h.mail.count(); got != 1 {
+		t.Errorf("emails sent = %d, want 1", got)
+	}
+}
+
 func TestConfirmReset_TokenStates(t *testing.T) {
 	h := newResetTestHarness(t)
 	ctx := t.Context()
