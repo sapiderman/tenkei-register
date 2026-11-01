@@ -465,6 +465,47 @@ func TestHandleUpdateProfile_Success(t *testing.T) {
 	}
 }
 
+// TestHandleUpdateProfile_CaseOnlyEmailIsNoOp pins the handler-side
+// guard: a case-only resubmission of the member's own address writes
+// nothing, so it must not demand current_password, invalidate sessions,
+// or audit email_change (stored emails are lowercase since
+// migrations/000010).
+func TestHandleUpdateProfile_CaseOnlyEmailIsNoOp(t *testing.T) {
+	a, db := newDBTestAuthenticator(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "case-noop@example.com", "+628500000005", string(hash))
+
+	// Case variant of the member's own address, no current_password.
+	body := `{"email":"Case-Noop@Example.COM"}`
+	req := withUserID(httptest.NewRequest("PUT", "/v1/auth/profile", strings.NewReader(body)), userID)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	a.handleUpdateProfile(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body: %s)", w.Code, w.Body.String())
+	}
+
+	// Stored email is unchanged — still the lowercase original.
+	user, err := GetUserByID(t.Context(), a.db, userID)
+	if err != nil {
+		t.Fatalf("GetUserByID: %v", err)
+	}
+	if user.Email != "case-noop@example.com" {
+		t.Errorf("stored email: got %q, want case-noop@example.com", user.Email)
+	}
+
+	// The no-op must not read as an account-takeover containment event.
+	var count int
+	err = db.NewRaw(`SELECT COUNT(*) FROM audit WHERE user_id = ? AND action = 'email_change'`, userID).Scan(t.Context(), &count)
+	if err != nil {
+		t.Fatalf("audit query: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("email_change audit rows = %d, want 0", count)
+	}
+}
+
 func TestHandleUpdateProfile_InvalidJSON(t *testing.T) {
 	a, _ := newDBTestAuthenticator(t)
 
