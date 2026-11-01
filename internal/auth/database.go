@@ -43,7 +43,7 @@ func ApplyProfileUpdate(ctx context.Context, db bun.IDB, user *types.User, req *
 	if req.Name != "" {
 		user.Name = req.Name
 	}
-	if req.Email != "" && req.Email != user.Email {
+	if req.Email != "" && !strings.EqualFold(req.Email, user.Email) {
 		// Emails are stored lowercase and compared case-insensitively
 		// (migrations/000010), so lowercase the request value before the
 		// conflict check and the assignment — "New@Example.com" must collide
