@@ -303,7 +303,13 @@ func (r *registrar) handleSubmission(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *registrar) getUserCount(w http.ResponseWriter, req *http.Request) {
-	// TODO: Implement user count endpoint
+	count, err := r.db.NewSelect().TableExpr("users").Count(req.Context())
+	if err != nil {
+		r.logger.Error().Err(err).Msg("user count query failed")
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "Failed to get member count."})
+		return
+	}
+	server.WriteJSON(w, http.StatusOK, map[string]int{"count": count})
 }
 
 // sendRegistrationEmails delivers the welcome and admin-notice emails after a

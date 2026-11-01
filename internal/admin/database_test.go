@@ -143,6 +143,25 @@ func TestDBListUsers_PaginationClamps(t *testing.T) {
 	}
 }
 
+// TestDBListUsers_PageClamp pins the overflow fix: absurd pages must clamp, not 500 on a negative OFFSET.
+func TestDBListUsers_PageClamp(t *testing.T) {
+	a := newTestAdministrator(t)
+
+	for _, tc := range []struct{ page, size int }{
+		{9223372036854775807, 2},
+		{4611686018427387904, 4},
+	} {
+		members, _, err := a.dbListUsers(t.Context(), types.RoleLevel(types.RoleSuperuser), "", false, tc.page, tc.size)
+		if err != nil {
+			t.Errorf("page=%d size=%d: %v", tc.page, tc.size, err)
+			continue
+		}
+		if len(members) != 0 {
+			t.Errorf("page=%d size=%d returned %d rows, want 0", tc.page, tc.size, len(members))
+		}
+	}
+}
+
 func TestDBListUsers_SummaryFieldsOnly(t *testing.T) {
 	a := newTestAdministrator(t)
 

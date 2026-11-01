@@ -618,3 +618,40 @@ func TestHandleSubmission_SuccessWithoutWhatsApp(t *testing.T) {
 		t.Fatalf("expected 201, got %d: %s", w.Code, w.Body.String())
 	}
 }
+
+// TestGetUserCount asserts the count route's JSON matches a direct SQL count of users.
+func TestGetUserCount(t *testing.T) {
+	reg := newTestRegistrarDB(t)
+	db := reg.db
+	const email = "test@example.com"
+	wipeUsers(t, db, email, "+6281234567890")
+
+	if w := doJSONRequest(t, reg, marshalJSON(validPayloadMap())); w.Code != http.StatusCreated {
+		t.Fatalf("seed registration: want 201, got %d: %s", w.Code, w.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/register/count", nil)
+	w := httptest.NewRecorder()
+	reg.getUserCount(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("count: want 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Count int `json:"count"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode count body %q: %v", w.Body.String(), err)
+	}
+
+	sqlCount, err := db.NewSelect().TableExpr("users").Count(context.Background())
+	if err != nil {
+		t.Fatalf("direct SQL count: %v", err)
+	}
+	if resp.Count != sqlCount {
+		t.Errorf("count = %d, want %d (direct SQL count)", resp.Count, sqlCount)
+	}
+	if resp.Count < 1 {
+		t.Errorf("count = %d, want >= 1 after a seeded registration", resp.Count)
+	}
+}
