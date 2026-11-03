@@ -1,0 +1,11 @@
+# Keep local secrets and junk out of the build context and builder-stage layers.
+# Runtime config (config.yaml) is loaded at container start, not build time.
+.git
+.env*
+*.md
+*.txt
+*.log
+*.out
+config.yaml
+graphify-out
+tenkei-be-img
