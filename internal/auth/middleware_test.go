@@ -217,7 +217,7 @@ func TestSetSessionCookie(t *testing.T) {
 	a := &authenticator{cookies: cookieConfig{Path: "/", Secure: true, SameSite: http.SameSiteLaxMode}}
 
 	w := httptest.NewRecorder()
-	a.setSessionCookie(w, "sid-123", sessionMaxAge)
+	a.setSessionCookie(w, "sid-123", pendingSessionTTL)
 
 	c := findCookie(t, w, sessionCookieName)
 	if c == nil {
@@ -238,8 +238,8 @@ func TestSetSessionCookie(t *testing.T) {
 	if c.Path != "/" {
 		t.Errorf("Path = %q, want %q", c.Path, "/")
 	}
-	if c.MaxAge != int(sessionMaxAge.Seconds()) {
-		t.Errorf("MaxAge = %d, want %d", c.MaxAge, int(sessionMaxAge.Seconds()))
+	if c.MaxAge != int(pendingSessionTTL.Seconds()) {
+		t.Errorf("MaxAge = %d, want %d", c.MaxAge, int(pendingSessionTTL.Seconds()))
 	}
 }
 

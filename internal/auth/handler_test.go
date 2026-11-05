@@ -96,6 +96,9 @@ func TestHandleLogin_Success(t *testing.T) {
 		if c.Path != "/" {
 			t.Errorf("session cookie Path = %q, want %q", c.Path, "/")
 		}
+		if c.MaxAge != int(sessionMaxAge.Seconds()) {
+			t.Errorf("session cookie MaxAge = %d, want %d (full sessionMaxAge)", c.MaxAge, int(sessionMaxAge.Seconds()))
+		}
 	}
 }
 
@@ -140,6 +143,16 @@ func TestHandleLogin_2FARequired(t *testing.T) {
 	json.NewDecoder(w.Body).Decode(&resp)
 	if resp["status"] != "2fa_required" {
 		t.Errorf("expected status '2fa_required', got %s", resp["status"])
+	}
+
+	// The pending session lives only pendingSessionTTL — the cookie must
+	// die with it, not carry the full sessionMaxAge.
+	c := findCookie(t, w, sessionCookieName)
+	if c == nil {
+		t.Fatal("2FA-pending login must set a session cookie")
+	}
+	if c.MaxAge != int(pendingSessionTTL.Seconds()) {
+		t.Errorf("pending session cookie MaxAge = %d, want %d (pendingSessionTTL)", c.MaxAge, int(pendingSessionTTL.Seconds()))
 	}
 }
 
