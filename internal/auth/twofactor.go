@@ -101,7 +101,7 @@ func (a *authenticator) handleVerify2FA(w http.ResponseWriter, r *http.Request) 
 	// The fresh verified token replaces the pending cookie — the response
 	// now carries a new Set-Cookie. Browsers apply it automatically; clients
 	// must never gate on reading it (HttpOnly, Set-Cookie is JS-unreadable).
-	a.setSessionCookie(w, newSession)
+	a.setSessionCookie(w, newSession, sessionMaxAge)
 	Audit(r.Context(), a.db, a.logger, userID, "login_2fa")
 	log.Info().Int64("user_id", userID).Msg("2fa login complete")
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})

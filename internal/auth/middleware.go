@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/sapiderman/tenkei-register/internal/server"
 	"github.com/sapiderman/tenkei-register/internal/types"
@@ -121,13 +122,15 @@ func roleFromContext(ctx context.Context) string {
 }
 
 // setSessionCookie sets an HttpOnly, Secure (in production), SameSite=Lax
-// session cookie on the response.
-func (a *authenticator) setSessionCookie(w http.ResponseWriter, sessionID string) {
+// session cookie on the response. maxAge mirrors the server-side TTL
+// (pendingSessionTTL for 2FA-pending, sessionMaxAge once verified) so the
+// cookie dies with the session it names.
+func (a *authenticator) setSessionCookie(w http.ResponseWriter, sessionID string, maxAge time.Duration) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    sessionID,
 		Path:     a.cookies.Path,
-		MaxAge:   int(sessionMaxAge.Seconds()),
+		MaxAge:   int(maxAge.Seconds()),
 		HttpOnly: true,
 		Secure:   a.cookies.Secure,
 		SameSite: a.cookies.SameSite,

@@ -50,7 +50,7 @@ func (a *authenticator) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.setSessionCookie(w, sessionID)
+	a.setSessionCookie(w, sessionID, sessionTTL(!requires2FA))
 	Audit(r.Context(), a.db, a.logger, userID, "login")
 
 	if requires2FA {
@@ -112,6 +112,7 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 	// stored lowercase (migrations/000010), so a case-variant of the stored
 	// value writes nothing — it must not trigger password re-entry, session
 	// invalidation, or an email_change audit.
+	warning := ""
 	emailChanged := req.Email != "" && !strings.EqualFold(req.Email, user.Email)
 	if emailChanged {
 		if req.CurrentPassword == "" {
@@ -151,22 +152,44 @@ func (a *authenticator) handleUpdateProfile(w http.ResponseWriter, r *http.Reque
 	if emailChanged {
 		// Containment: kill every session, then reissue one to the requester
 		// so they stay logged in while all other devices (and any stolen
-		// cookie) are logged out. Uses the two existing SessionStore methods
-		// — no new interface seam for a single call site. A failure here does
-		// not undo the update; log it and report success.
-		if err := a.sessions.InvalidateAll(r.Context(), userID); err != nil {
-			log.Error().Err(err).Int64("user_id", userID).Msg("email change: session invalidation failed")
-		} else if newSession, err := a.sessions.Create(r.Context(), userID, true); err != nil {
-			log.Error().Err(err).Int64("user_id", userID).Msg("email change: session reissue failed")
-		} else {
-			a.setSessionCookie(w, newSession)
+		// cookie) are logged out. A failure does not undo the update, but it
+		// must not be reported as plain success either — other sessions
+		// survived the change, so the response carries a warning instead.
+		if !a.killAndReissue(w, r, userID, "email_change") {
+			Audit(r.Context(), a.db, a.logger, userID, "email_change_invalidation_failed")
+			warning = "email changed, but signing out other sessions failed — try logout-all later"
 		}
 		Audit(r.Context(), a.db, a.logger, userID, "email_change")
 	}
 
 	Audit(r.Context(), a.db, a.logger, userID, "profile_update")
 	log.Info().Int64("user_id", userID).Msg("profile updated")
-	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	resp := map[string]string{"status": "ok"}
+	if warning != "" {
+		resp["warning"] = warning
+	}
+	server.WriteJSON(w, http.StatusOK, resp)
+}
+
+// killAndReissue deletes every session for the user, then mints one fresh
+// session for the requester so they stay logged in. Returns false when the
+// invalidation failed — other sessions (possibly a stolen cookie) survived
+// the change, and the caller must not report plain success. A reissue
+// failure after a successful invalidation is containment-neutral (the
+// requester simply re-logs on the next request), so it is logged only and
+// still returns true.
+func (a *authenticator) killAndReissue(w http.ResponseWriter, r *http.Request, userID int64, action string) bool {
+	if err := a.sessions.InvalidateAll(r.Context(), userID); err != nil {
+		log.Error().Err(err).Int64("user_id", userID).Str("action", action).Msg("session invalidation failed")
+		return false
+	}
+	newSession, err := a.sessions.Create(r.Context(), userID, true)
+	if err != nil {
+		log.Error().Err(err).Int64("user_id", userID).Str("action", action).Msg("session reissue failed")
+		return true
+	}
+	a.setSessionCookie(w, newSession, sessionMaxAge)
+	return true
 }
 
 func (a *authenticator) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -309,16 +332,20 @@ func (a *authenticator) handleChangePassword(w http.ResponseWriter, r *http.Requ
 
 	// All other sessions (including any stolen cookie) must die; reissue one
 	// to the requester so they stay logged in. Mirrors the email-change path.
-	if err := a.sessions.InvalidateAll(r.Context(), userID); err != nil {
-		log.Error().Err(err).Int64("user_id", userID).Msg("password change: session invalidation failed")
-	} else if newSession, err := a.sessions.Create(r.Context(), userID, true); err != nil {
-		log.Error().Err(err).Int64("user_id", userID).Msg("password change: session reissue failed")
-	} else {
-		a.setSessionCookie(w, newSession)
-	}
+	// A failed invalidation is audited and answered with a warning — never
+	// plain success, or the user would wrongly trust the containment.
+	contained := a.killAndReissue(w, r, userID, "password_change")
 
 	Audit(r.Context(), a.db, a.logger, userID, "password_change")
 	log.Info().Int64("user_id", userID).Msg("password changed")
+	if !contained {
+		Audit(r.Context(), a.db, a.logger, userID, "password_change_invalidation_failed")
+		server.WriteJSON(w, http.StatusOK, map[string]string{
+			"status":  "ok",
+			"warning": "password changed, but signing out other sessions failed — try logout-all later",
+		})
+		return
+	}
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 

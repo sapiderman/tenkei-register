@@ -217,7 +217,7 @@ func TestSetSessionCookie(t *testing.T) {
 	a := &authenticator{cookies: cookieConfig{Path: "/", Secure: true, SameSite: http.SameSiteLaxMode}}
 
 	w := httptest.NewRecorder()
-	a.setSessionCookie(w, "sid-123")
+	a.setSessionCookie(w, "sid-123", sessionMaxAge)
 
 	c := findCookie(t, w, sessionCookieName)
 	if c == nil {
@@ -247,7 +247,7 @@ func TestSetSessionCookie_InsecureMode(t *testing.T) {
 	a := &authenticator{cookies: cookieConfig{Path: "/", Secure: false, SameSite: http.SameSiteLaxMode}}
 
 	w := httptest.NewRecorder()
-	a.setSessionCookie(w, "sid-123")
+	a.setSessionCookie(w, "sid-123", sessionMaxAge)
 
 	c := findCookie(t, w, sessionCookieName)
 	if c == nil {
