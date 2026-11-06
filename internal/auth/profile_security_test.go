@@ -5,6 +5,8 @@ package auth
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -263,6 +265,88 @@ func TestHandleChangePassword_Success(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected a fresh session cookie after password change")
+	}
+}
+
+// TestHandleUpdateProfile_InvalidateAllFails pins the containment-failure
+// contract: when InvalidateAll errors, the email change is not reported as
+// plain success — the response carries a warning and an
+// email_change_invalidation_failed audit row is written.
+func TestHandleUpdateProfile_InvalidateAllFails(t *testing.T) {
+	a, db := newDBTestAuthenticator(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "email-kill-fail@example.com", "+62877777785", string(hash))
+	a.sessions = &mockSessionStore{invalidateAllErr: errors.New("db down")}
+
+	body := `{"email":"email-kill-fail-new@example.com","current_password":"testpassword"}`
+	req := withUserID(httptest.NewRequest(http.MethodPut, "/v1/auth/profile", strings.NewReader(body)), userID)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	a.handleUpdateProfile(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "ok" {
+		t.Errorf("expected status 'ok', got %s", resp["status"])
+	}
+	if resp["warning"] == "" {
+		t.Error("failed containment must be reported as a warning, not plain success")
+	}
+	// No session may be reissued when the invalidation failed.
+	if c := w.Result().Header.Get("Set-Cookie"); c != "" {
+		t.Errorf("expected no Set-Cookie on failed invalidation, got %q", c)
+	}
+
+	var auditCount int
+	err := db.NewRaw(`SELECT COUNT(*) FROM audit WHERE user_id = ? AND action = 'email_change_invalidation_failed'`, userID).Scan(t.Context(), &auditCount)
+	if err != nil {
+		t.Fatalf("audit query: %v", err)
+	}
+	if auditCount != 1 {
+		t.Errorf("expected 1 email_change_invalidation_failed audit row, got %d", auditCount)
+	}
+}
+
+// TestHandleChangePassword_InvalidateAllFails mirrors the email-change
+// containment test: a failed InvalidateAll must surface a warning and a
+// password_change_invalidation_failed audit row, never plain success.
+func TestHandleChangePassword_InvalidateAllFails(t *testing.T) {
+	a, db := newDBTestAuthenticator(t)
+	hash, _ := bcrypt.GenerateFromPassword([]byte("testpassword"), bcrypt.DefaultCost)
+	userID := insertTestUser(t, db, "pw-kill-fail@example.com", "+62877777786", string(hash))
+	a.sessions = &mockSessionStore{invalidateAllErr: errors.New("db down")}
+
+	body := `{"current_password":"testpassword","new_password":"brand-new-pass-2"}`
+	req := withUserID(httptest.NewRequest(http.MethodPost, "/v1/auth/password", strings.NewReader(body)), userID)
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	a.handleChangePassword(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]string
+	json.NewDecoder(w.Body).Decode(&resp)
+	if resp["status"] != "ok" {
+		t.Errorf("expected status 'ok', got %s", resp["status"])
+	}
+	if resp["warning"] == "" {
+		t.Error("failed containment must be reported as a warning, not plain success")
+	}
+	if c := w.Result().Header.Get("Set-Cookie"); c != "" {
+		t.Errorf("expected no Set-Cookie on failed invalidation, got %q", c)
+	}
+
+	var auditCount int
+	err := db.NewRaw(`SELECT COUNT(*) FROM audit WHERE user_id = ? AND action = 'password_change_invalidation_failed'`, userID).Scan(t.Context(), &auditCount)
+	if err != nil {
+		t.Fatalf("audit query: %v", err)
+	}
+	if auditCount != 1 {
+		t.Errorf("expected 1 password_change_invalidation_failed audit row, got %d", auditCount)
 	}
 }
 
