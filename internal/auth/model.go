@@ -85,11 +85,11 @@ type PasswordChangeRequest struct {
 }
 
 // AccountDeletionRequest is the inbound payload for POST /v1/auth/delete
-// (GDPR erasure). The password gates the request; `code` is required only
-// when the member has TOTP enabled. Write-only, never logged (AGENTS.md rule 3).
+// (PRD #25). Verification is possession-based: the current TOTP code when
+// 2FA is enabled, an emailed one-time code otherwise — never the password.
+// Write-only, never logged (AGENTS.md rule 3).
 type AccountDeletionRequest struct {
-	CurrentPassword string `json:"current_password" validate:"required,max=72"` // #nosec G117 — never logged
-	Code            string `json:"code" validate:"omitempty,numeric,len=6"`
+	Code string `json:"code" validate:"required,numeric,len=6"` // #nosec G117 — never logged
 }
 
 // ForgotPasswordRequest is the inbound payload for POST /v1/auth/forgot-password.

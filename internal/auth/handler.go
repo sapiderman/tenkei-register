@@ -226,13 +226,49 @@ func (a *authenticator) handleLogoutAll(w http.ResponseWriter, r *http.Request) 
 	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleRequestDeletionCode implements POST /v1/auth/delete/request
+// (PRD #25): issue and email a one-time 6-digit code for members without
+// 2FA. Members WITH 2FA never take this path — their authenticator code
+// verifies the delete directly, so requesting an email code is a client
+// bug, answered with 400 (the UI hides the path anyway).
+func (a *authenticator) handleRequestDeletionCode(w http.ResponseWriter, r *http.Request) {
+	userID := userIDFromContext(r.Context())
+
+	user, err := GetUserByID(r.Context(), a.db, userID)
+	if err != nil {
+		log.Error().Err(err).Int64("user_id", userID).Msg("deletion code request: user fetch failed")
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	if a.totpKey != nil && user.TOTPEnabled && user.TOTPSecret != "" {
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "totp enabled"})
+		return
+	}
+
+	code, err := issueDeletionCode(r.Context(), a.db, userID)
+	if err != nil {
+		log.Error().Err(err).Int64("user_id", userID).Msg("deletion code issue failed")
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
+	}
+
+	// Audit before the send: the request is the auditable fact; a failed
+	// delivery has its own categorized failure audit.
+	Audit(r.Context(), a.db, a.logger, userID, "deletion_code_requested:email="+user.Email)
+
+	a.sendDeletionCodeEmail(r.Context(), user, code)
+	log.Info().Int64("user_id", userID).Msg("deletion code requested")
+	server.WriteJSON(w, http.StatusOK, map[string]string{"status": "code sent"})
+}
+
 // handleDeleteAccount implements POST /v1/auth/delete: GDPR Art. 17 erasure.
-// Password re-verification gates the request (same posture as password
-// change); when the member has TOTP enabled, the current code is required
-// too. The hard DELETE cascades sessions and password-reset tokens
-// (migrations 000002/000006); the audit row has no FK and outlives the
-// user, so the reason below — written before the DELETE, email included —
-// is the only surviving record of who asked for the erasure.
+// Verification is possession-based (PRD #25): the current TOTP code when the
+// member has 2FA enabled, the emailed one-time code otherwise — no password.
+// The hard DELETE cascades sessions, password-reset tokens and deletion
+// codes (migrations 000002/000006/000011); the audit row has no FK and
+// outlives the user, so the tail below — written before the DELETE, email
+// included — is the only surviving record of who asked for the erasure.
 func (a *authenticator) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	userID := userIDFromContext(r.Context())
 
@@ -249,17 +285,17 @@ func (a *authenticator) handleDeleteAccount(w http.ResponseWriter, r *http.Reque
 	}
 
 	// The session already identifies the user, so there is nothing to
-	// enumerate here: a plain wrong-password 403 is correct.
-	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.CurrentPassword)) != nil {
-		Audit(r.Context(), a.db, a.logger, userID, "data_deletion_rejected")
-		log.Warn().Int64("user_id", userID).Msg("account deletion rejected: wrong password")
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "current password verification failed"})
-		return
+	// enumerate here: a plain wrong-code 400 is correct for wrong, exhausted,
+	// expired and superseded codes alike.
+	verified := false
+	if a.totpKey != nil && user.TOTPEnabled && user.TOTPSecret != "" {
+		verified = a.acceptTOTPCode(r.Context(), user, req.Code, time.Now())
+	} else {
+		verified = consumeDeletionCode(r.Context(), a.db, userID, req.Code)
 	}
-
-	// Second factor when enrolled (mirrors 2FA disable). Skipped while the
-	// TOTP kill switch is off — password-only for everyone, same as login.
-	if a.totpKey != nil && user.TOTPEnabled && user.TOTPSecret != "" && !a.acceptTOTPCode(r.Context(), user, req.Code, time.Now()) {
+	if !verified {
+		Audit(r.Context(), a.db, a.logger, userID, "data_deletion_rejected:email="+user.Email)
+		log.Warn().Int64("user_id", userID).Msg("account deletion rejected: invalid code")
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid code"})
 		return
 	}
