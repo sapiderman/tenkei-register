@@ -242,7 +242,7 @@ func (a *authenticator) handleRequestDeletionCode(w http.ResponseWriter, r *http
 	}
 
 	if a.totpKey != nil && user.TOTPEnabled && user.TOTPSecret != "" {
-		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "totp enabled"})
+		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "2FA is enabled"})
 		return
 	}
 
@@ -288,10 +288,20 @@ func (a *authenticator) handleDeleteAccount(w http.ResponseWriter, r *http.Reque
 	// enumerate here: a plain wrong-code 400 is correct for wrong, exhausted,
 	// expired and superseded codes alike.
 	verified := false
+	var verifyErr error
 	if a.totpKey != nil && user.TOTPEnabled && user.TOTPSecret != "" {
 		verified = a.acceptTOTPCode(r.Context(), user, req.Code, time.Now())
 	} else {
-		verified = consumeDeletionCode(r.Context(), a.db, userID, req.Code)
+		verified, verifyErr = consumeDeletionCode(r.Context(), a.db, userID, req.Code)
+	}
+	if verifyErr != nil {
+		// Infra failure, not a user mistake: audit the attempt under its own
+		// key and fail closed with a 500 — never delete on an unverifiable
+		// state, never record it as a rejection.
+		Audit(r.Context(), a.db, a.logger, userID, "data_deletion_error:email="+user.Email)
+		log.Error().Err(verifyErr).Int64("user_id", userID).Msg("account deletion: code verification failed")
+		server.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+		return
 	}
 	if !verified {
 		Audit(r.Context(), a.db, a.logger, userID, "data_deletion_rejected:email="+user.Email)

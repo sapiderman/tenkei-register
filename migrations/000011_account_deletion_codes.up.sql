@@ -7,12 +7,16 @@
 -- internal/auth/delete_code.go).
 
 CREATE TABLE IF NOT EXISTS account_deletion_codes (
-    code_hash  VARCHAR(64) PRIMARY KEY,
     user_id    INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash  VARCHAR(64) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMPTZ NOT NULL,
     consumed   BOOLEAN NOT NULL DEFAULT FALSE,
-    attempts   INT NOT NULL DEFAULT 0
+    attempts   INT NOT NULL DEFAULT 0,
+    -- Composite key, not a global one: the code space is 10^6, so a
+    -- table-wide unique hash would collide across users as rows accumulate
+    -- (consumed rows are never pruned). Uniqueness only matters per user.
+    PRIMARY KEY (user_id, code_hash)
 );
 
 -- Idempotent index creation

@@ -7,6 +7,7 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -431,15 +432,69 @@ func TestDelete_EmailedCode_FiveWrongTriesKillTheCode(t *testing.T) {
 		t.Error("user row must survive an exhausted code")
 	}
 
+	// Two more wrong tries past the budget: the counter stays capped at 5,
+	// the dead code keeps answering 400.
+	for i := 0; i < 2; i++ {
+		if w := h.submitDelete(userID, `{"code":"`+wrongCodeOf(code)+`"}`); w.Code != http.StatusBadRequest {
+			t.Fatalf("post-exhaustion try %d = %d, want 400", i, w.Code)
+		}
+	}
+	var attempts int
+	if err := h.db.NewRaw(`SELECT attempts FROM account_deletion_codes WHERE user_id = ?`, userID).Scan(t.Context(), &attempts); err != nil {
+		t.Fatalf("read attempts: %v", err)
+	}
+	if attempts != maxDeletionCodeAttempts {
+		t.Errorf("attempts = %d, want %d (capped, no writes past the budget)", attempts, maxDeletionCodeAttempts)
+	}
+
 	var rejected int
 	for _, a := range h.deletionAudits(userID) {
 		if a == "data_deletion_rejected:email=del-exhaust@example.com" {
 			rejected++
 		}
 	}
-	if rejected != 6 {
-		t.Errorf("rejected audit rows = %d, want 6 (five wrong + one dead-code try)", rejected)
+	if rejected != 8 {
+		t.Errorf("rejected audit rows = %d, want 8 (five wrong + one dead-code try + two past the budget)", rejected)
 	}
+}
+
+// TestDelete_VerifyInfraError_Fails500 pins the infra-failure contract: a DB
+// error during code verification is a 500 with its own audit key, never a
+// wrong-code 400 and never a rejection audit.
+func TestDelete_VerifyInfraError_Fails500(t *testing.T) {
+	h, _ := newDeleteHarness(t, false)
+	userID := h.seedUser("del-infra@example.com")
+
+	if w := h.requestCode(userID); w.Code != http.StatusOK {
+		t.Fatalf("request code: %d", w.Code)
+	}
+	code := h.lastCode(0)
+
+	// Break the code table so the consume UPDATE errors on a missing column.
+	// Cleanup uses context.Background(): t.Context() is already canceled by
+	// the time cleanup functions run, which would silently skip the restore.
+	if _, err := h.db.NewRaw(`ALTER TABLE account_deletion_codes DROP COLUMN attempts`).Exec(t.Context()); err != nil {
+		t.Fatalf("drop column: %v", err)
+	}
+	t.Cleanup(func() {
+		if _, err := h.db.NewRaw(`ALTER TABLE account_deletion_codes ADD COLUMN IF NOT EXISTS attempts INT NOT NULL DEFAULT 0`).Exec(context.Background()); err != nil {
+			t.Errorf("restore attempts column: %v", err)
+		}
+	})
+
+	w := h.submitDelete(userID, `{"code":"`+code+`"}`)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("verify with broken table = %d, want 500", w.Code)
+	}
+	if !h.userExists(userID) {
+		t.Error("user row must survive an infra failure")
+	}
+	for _, a := range h.deletionAudits(userID) {
+		if a == "data_deletion_error:email=del-infra@example.com" {
+			return // pass
+		}
+	}
+	t.Errorf("audits %v lack data_deletion_error:email=del-infra@example.com", h.deletionAudits(userID))
 }
 
 func TestDelete_EmailedCode_Expired(t *testing.T) {
@@ -477,8 +532,8 @@ func TestDelete_EmailedCode_ConsumedReplay(t *testing.T) {
 
 	// Burn the code without deleting the user, then replay it: the second
 	// submit must fail exactly like a wrong code (single-use).
-	if !consumeDeletionCode(t.Context(), h.db, userID, code) {
-		t.Fatal("first consume of a fresh code must succeed")
+	if ok, err := consumeDeletionCode(t.Context(), h.db, userID, code); err != nil || !ok {
+		t.Fatalf("first consume of a fresh code must succeed: ok=%v err=%v", ok, err)
 	}
 	if w := h.submitDelete(userID, `{"code":"`+code+`"}`); w.Code != http.StatusBadRequest {
 		t.Errorf("replayed code = %d, want 400", w.Code)

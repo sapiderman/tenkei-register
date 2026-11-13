@@ -12,7 +12,6 @@ import (
 	texttemplate "text/template"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"github.com/sapiderman/tenkei-register/internal/mailer"
 	"github.com/sapiderman/tenkei-register/internal/server"
 	"github.com/sapiderman/tenkei-register/internal/types"
@@ -34,8 +33,8 @@ import (
 type AccountDeletionCode struct {
 	bun.BaseModel `bun:"table:account_deletion_codes"`
 
+	UserID    int64     `bun:"user_id,pk"`
 	CodeHash  string    `bun:"code_hash,pk"`
-	UserID    int64     `bun:"user_id,notnull"`
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp"`
 	ExpiresAt time.Time `bun:"expires_at,notnull"`
 	Consumed  bool      `bun:"consumed,notnull"`
@@ -102,12 +101,12 @@ func issueDeletionCode(ctx context.Context, db *bun.DB, userID int64) (string, e
 // consumeDeletionCode verifies and burns the code atomically. One statement
 // enforces hash match + live + unexpired + attempts left, so two concurrent
 // submits cannot both win. A miss increments the live code's attempt
-// counter, but the caller only ever learns false — the request is
-// session-authenticated, so there is nothing to enumerate; the handler
-// answers the same plain 400 for wrong, exhausted, expired and superseded.
-// Infrastructure failures also fail closed: a delete must never succeed on
-// an unverifiable state.
-func consumeDeletionCode(ctx context.Context, db *bun.DB, userID int64, code string) bool {
+// counter, but the caller only ever learns false for wrong, exhausted,
+// expired and superseded codes alike — the request is session-authenticated,
+// so there is nothing to enumerate; the handler answers the same plain 400.
+// Infrastructure failures return a non-nil error so the handler can fail
+// closed with a 500 instead of masquerading as a wrong code.
+func consumeDeletionCode(ctx context.Context, db *bun.DB, userID int64, code string) (bool, error) {
 	var consumedUserID int64
 	err := db.NewRaw(
 		`UPDATE account_deletion_codes SET consumed = TRUE
@@ -117,21 +116,22 @@ func consumeDeletionCode(ctx context.Context, db *bun.DB, userID int64, code str
 		userID, hashSessionID(code), maxDeletionCodeAttempts,
 	).Scan(ctx, &consumedUserID)
 	if err == nil {
-		return true
+		return true, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		log.Error().Err(err).Int64("user_id", userID).Msg("deletion code: consume failed")
-		return false
+		return false, fmt.Errorf("deletion code: consume: %w", err)
 	}
 
-	// Wrong code against a live row: burn one attempt. Zero rows updated
-	// means expired/none/superseded — nothing left to count either way.
+	// Wrong code against a live row: burn one attempt, capped at the budget
+	// so the counter stops at the limit. Zero rows updated means
+	// expired/none/superseded — nothing left to count either way.
 	_, _ = db.NewRaw(
 		`UPDATE account_deletion_codes SET attempts = attempts + 1
-		  WHERE user_id = ? AND consumed = FALSE AND expires_at > NOW()`,
-		userID,
+		  WHERE user_id = ? AND consumed = FALSE AND expires_at > NOW()
+		    AND attempts < ?`,
+		userID, maxDeletionCodeAttempts,
 	).Exec(ctx)
-	return false
+	return false, nil
 }
 
 // sendDeletionCodeEmail delivers the code inside the request, mirroring
