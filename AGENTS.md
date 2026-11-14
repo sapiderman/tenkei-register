@@ -58,7 +58,8 @@
 | PUT | `/v1/auth/profile` | XCFBypass + session cookie | Update profile |
 | POST | `/v1/auth/logout` | XCFBypass + session cookie | Invalidate session |
 | POST | `/v1/auth/logout-all` | XCFBypass + session cookie | Revoke all sessions (compromise response) |
-| POST | `/v1/auth/delete` | XCFBypass + session cookie + rate-limit (5/min/IP) | GDPR Art. 17 erasure: password (+ current TOTP code when enrolled) → hard-deletes the user row (sessions/reset tokens cascade); audit row with the email survives as the request record |
+| POST | `/v1/auth/delete/request` | XCFBypass + session cookie + rate-limit (5/min/IP) | Account self-deletion step 1 (PRD #25): issues + emails a 6-digit one-time code (SHA-256 at rest, 10-min TTL, 5 attempts, supersede-on-reissue). 400 when 2FA is enrolled — those members verify with their authenticator app instead | 
+| POST | `/v1/auth/delete` | XCFBypass + session cookie + rate-limit (5/min/IP) | GDPR Art. 17 erasure, possession-verified (PRD #25): current TOTP code when 2FA is enrolled, emailed one-time code otherwise — no password → hard-deletes the user row (sessions/reset tokens/deletion codes cascade); audit row with the email survives as the request record |
 | POST | `/v1/auth/password` | XCFBypass + session cookie | Change own password (re-verifies current; invalidates other sessions) |
 | POST | `/v1/auth/2fa/verify` | XCFBypass + **pending**-session cookie + rate-limit (10/min/IP) | TOTP login step 2: code check → promotes pending session (only when `TENKEI_TOTP_ENABLED=true`; else 404) |
 | POST | `/v1/auth/2fa/enroll` | XCFBypass + session cookie + rate-limit (5/min/IP) | Start TOTP enrollment; returns secret + `otpauth://` URL once (409 if already enabled) |
@@ -162,7 +163,7 @@ Viper merges: env vars (`TENKEI_` prefix) > `config.yaml` > compiled defaults. `
 | `TENKEI_SERVER_TURNSTILE_ENABLED` | `true` | Toggle Turnstile verification |
 | `TENKEI_SERVER_READ_HEADER_TIMEOUT` | `5s` | Prevent Slowloris attacks |
 | `TENKEI_SERVER_LOG_LEVEL` | `info` | zerolog global level (debug logs every SQL statement) |
-| `TENKEI_SERVER_VERSION` | `0.0.13-20260926` | Reported in startup log. Bump on every change — see AI Rule 9. |
+| `TENKEI_SERVER_VERSION` | `0.4.0-20261113` | Reported in startup log. Bump on every change — see AI Rule 9. |
 | `TENKEI_RESEND_API_KEY` | — | Resend API key. **Required in production when the mailer is enabled** — the app refuses to start without it (silent no-mail production is worse). Absent + non-production → LogMailer (emails render to logs). |
 | `TENKEI_MAILER_ENABLED` | `true` | Toggle registration emails without touching the API key secret (incident kill-switch). |
 | `TENKEI_MAILER_FROM` | `Tenkei <no-reply@tenkeiaikidojo.org>` | From address for all emails. |

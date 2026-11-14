@@ -229,29 +229,47 @@ paths:
       tags: [Auth]
       summary: Delete own account (GDPR Art. 17 erasure)
       description: >-
-        Requires session + current password (plus the current TOTP code when
-        2FA is enrolled). Hard-deletes the user row; sessions and
-        password-reset tokens cascade. An audit row with the email survives
+        Requires session + possession proof (PRD #25): the current TOTP code
+        when 2FA is enrolled, otherwise the one-time code emailed by
+        /v1/auth/delete/request (10-minute TTL, 5 attempts). No password.
+        Hard-deletes the user row; sessions, password-reset tokens and
+        deletion codes cascade. An audit row with the email survives
         as the record of the request.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [current_password]
-              properties:
-                current_password: { type: string }
-                code: { type: string, description: 'Current TOTP code; required only when 2FA is enrolled' }
+              $ref: '#/components/schemas/TotpCodeRequest'
       responses:
         '200':
           description: Account deleted; session cookie cleared
         '400':
-          description: Invalid payload or invalid TOTP code
+          description: Invalid payload or invalid/expired/exhausted code
         '401':
           $ref: '#/components/responses/Unauthorized'
-        '403':
-          description: Current password verification failed
+        '429':
+          description: Rate limit exceeded (5/min per IP)
+
+  /v1/auth/delete/request:
+    post:
+      tags: [Auth]
+      summary: Email an account-deletion one-time code
+      description: >-
+        Requires session (PRD #25). Issues a 6-digit code, stores only its
+        SHA-256 hash (10-minute TTL, single use, supersedes any prior code)
+        and emails it to the registered address. 400 when 2FA is enrolled —
+        those members verify with their authenticator app instead. Rate-limited
+        5/min per IP (one outbound email per request).
+      responses:
+        '200':
+          description: Code sent (status "code sent")
+        '400':
+          description: 2FA is enabled for this account
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          description: Rate limit exceeded (5/min per IP)
 
   /v1/auth/2fa/verify:
     post:

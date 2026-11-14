@@ -26,6 +26,11 @@ type authenticator struct {
 	cookies   cookieConfig
 	turnstile *turnstile.Verifier
 
+	// mailer delivers the account-deletion code email (PRD #25); the reset
+	// flow owns its own copy inside the resetter.
+	mailer  mailer.Mailer
+	delTmpl *deletionTemplates
+
 	// totpKey decrypts users.totp_secret (nil when TOTP is disabled — the
 	// verify route is then not mounted at all). See otp-plan.md.
 	totpKey []byte
@@ -107,6 +112,8 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 		resetter:  NewDBPasswordResetter(db, sessions, mail, logger.With().Str("module", "auth").Logger(), cfg.Server.AppURL),
 		cookies:   cookieConfigFor(cfg.Server.Mode == "production"),
 		turnstile: turnstile.New(cfg.Server.TurnstileSecret, cfg.Server.TurnstileEnabled, logger),
+		mailer:    mail,
+		delTmpl:   newDeletionTemplates(),
 		totpKey:   totpKey,
 	}
 
@@ -137,8 +144,10 @@ func NewRouter(ctx context.Context, r chi.Router, logger zerolog.Logger, validat
 			r.Post("/logout", a.handleLogout)
 			r.Post("/logout-all", a.handleLogoutAll)
 
-			// GDPR erasure: destructive + irreversible, so both a re-verified
-			// password and a tight rate limit (same tier as 2FA disable).
+			// Account self-deletion (PRD #25): emailed-code request path is
+			// destructive-adjacent (one outbound email per request) and the
+			// delete itself is irreversible — both at forgot-password's tier.
+			r.With(mymiddleware.RateLimit(5, 1*time.Minute)).Post("/delete/request", a.handleRequestDeletionCode)
 			r.With(mymiddleware.RateLimit(5, 1*time.Minute)).Post("/delete", a.handleDeleteAccount)
 
 			// Enrollment lifecycle (otp-plan.md Phase 4). Tighter rate limit:
