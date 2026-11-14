@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS account_deletion_codes (
     PRIMARY KEY (user_id, code_hash)
 );
 
--- Idempotent index creation
-CREATE INDEX IF NOT EXISTS idx_account_deletion_codes_user_id ON account_deletion_codes(user_id);
+-- Idempotent index creation. No standalone user_id index: the composite
+-- PK's leading column already serves the user_id lookups in delete_code.go.
 CREATE INDEX IF NOT EXISTS idx_account_deletion_codes_expires_at ON account_deletion_codes(expires_at);
 
 -- At most one live (unconsumed) code per user, enforced by the database:
