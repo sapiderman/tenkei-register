@@ -19,6 +19,7 @@ tags:
   - name: Auth
   - name: 2FA
   - name: Admin
+  - name: Attendance
 
 security:
   - sessionCookie: []
@@ -458,6 +459,178 @@ paths:
         '409':
           description: Would demote the last superuser
 
+  /v1/attendance:
+    post:
+      tags: [Attendance]
+      summary: Log attendance (member)
+      description: >-
+        Requires session + role >= user. Rate-limited to 10 requests per minute
+        per user. 409 when the same member logged the same dojo in the last 10
+        minutes; a rejected row does not block.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AttendanceLogRequest'
+      responses:
+        '201':
+          description: Stored as pending until an admin confirms or rejects it
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceLogResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Same dojo already logged within the last 10 minutes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '429':
+          description: Rate limit exceeded
+
+  /v1/attendance/me:
+    get:
+      tags: [Attendance]
+      summary: Own attendance history
+      description: >-
+        Requires session + role >= user. Newest first. Coordinates are never
+        returned.
+      parameters:
+        - { name: page, in: query, schema: { type: integer, default: 1 } }
+        - { name: size, in: query, schema: { type: integer, default: 25, minimum: 1, maximum: 100 } }
+      responses:
+        '200':
+          description: Paginated records
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/attendance/instructors:
+    get:
+      tags: [Attendance]
+      description: >-
+        Requires session + role >= user. Instructor roster for the log
+        dialog, read from the instructors table (maintained by SQL). Instructors
+        whose dojo is '' teach everywhere and are listed in all; the client
+        offers sorted unique all + instructors[dojo]. Dojos without rows are
+        omitted from the map.
+      responses:
+        '200':
+          description: Roster grouped by dojo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstructorList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/attendance:
+    get:
+      tags: [Admin]
+      summary: List attendance (all members)
+      description: >-
+        Requires session + role >= admin. Not viewer-scoped. `from` and `to`
+        are inclusive `YYYY-MM-DD` days in Asia/Jakarta; no `status` means all.
+      parameters:
+        - { name: page,   in: query, schema: { type: integer, default: 1 } }
+        - { name: size,   in: query, schema: { type: integer, default: 25, minimum: 1, maximum: 100 } }
+        - { name: dojo,   in: query, schema: { type: string } }
+        - { name: q,      in: query, schema: { type: string }, description: Member name, case-insensitive substring }
+        - { name: status, in: query, schema: { type: string, enum: [pending, confirmed, rejected] } }
+        - { name: from,   in: query, schema: { type: string, format: date } }
+        - { name: to,     in: query, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Paginated records, including coordinates
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAttendanceList'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /v1/admin/attendance/{id}/confirm:
+    put:
+      tags: [Admin]
+      summary: Confirm a pending attendance record
+      parameters:
+        - $ref: '#/components/parameters/AttendanceID'
+      responses:
+        '200':
+          description: Updated record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAttendanceRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Unknown record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Already confirmed or rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /v1/admin/attendance/{id}/reject:
+    put:
+      tags: [Admin]
+      summary: Reject a pending attendance record
+      parameters:
+        - $ref: '#/components/parameters/AttendanceID'
+      responses:
+        '200':
+          description: Updated record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAttendanceRecord'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Unknown record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Already confirmed or rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
 components:
   securitySchemes:
     sessionCookie:
@@ -467,6 +640,11 @@ components:
 
   parameters:
     MemberID:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, format: int64 }
+    AttendanceID:
       name: id
       in: path
       required: true
@@ -652,3 +830,78 @@ components:
       required: [role]
       properties:
         role: { type: string, enum: [new, user, admin, superuser] }
+
+    AttendanceLogRequest:
+      type: object
+      required: [dojo, instructor]
+      properties:
+        dojo:                { type: string, maxLength: 255 }
+        instructor:          { type: string, maxLength: 255 }
+        latitude:            { type: number, format: double, minimum: -90, maximum: 90, description: Must be sent together with longitude }
+        longitude:           { type: number, format: double, minimum: -180, maximum: 180 }
+        location_accuracy_m: { type: integer, minimum: 0 }
+
+    AttendanceLogResponse:
+      type: object
+      properties:
+        id:           { type: integer, format: int64 }
+        logged_at:    { type: string, format: date-time }
+        dojo:         { type: string }
+        instructor:   { type: string }
+        status:       { type: string, enum: [pending, confirmed, rejected] }
+        has_location: { type: boolean }
+
+    AttendanceRecord:
+      type: object
+      properties:
+        id:                  { type: integer, format: int64 }
+        user_id:             { type: integer, format: int64 }
+        user_name:           { type: string }
+        logged_at:           { type: string, format: date-time }
+        dojo:                { type: string }
+        instructor:          { type: string }
+        has_location:        { type: boolean }
+        location_accuracy_m: { type: integer, nullable: true }
+        status:              { type: string, enum: [pending, confirmed, rejected] }
+        confirmed_by_name:   { type: string, nullable: true }
+        confirmed_at:        { type: string, format: date-time, nullable: true }
+
+    AdminAttendanceRecord:
+      description: AttendanceRecord plus the coordinates (admin only)
+      allOf:
+        - $ref: '#/components/schemas/AttendanceRecord'
+        - type: object
+          properties:
+            latitude:  { type: number, format: double, nullable: true }
+            longitude: { type: number, format: double, nullable: true }
+
+    AttendanceList:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AttendanceRecord' } }
+        total: { type: integer, format: int64 }
+        page:  { type: integer }
+        size:  { type: integer }
+
+    InstructorList:
+      type: object
+      required: [all, instructors]
+      properties:
+        all:
+          type: array
+          description: instructors that teach at every dojo (dojo ''), sorted
+          items: { type: string }
+        instructors:
+          type: object
+          description: dojo name -> instructor names, sorted
+          additionalProperties:
+            type: array
+            items: { type: string }
+
+    AdminAttendanceList:
+      type: object
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/AdminAttendanceRecord' } }
+        total: { type: integer, format: int64 }
+        page:  { type: integer }
+        size:  { type: integer }
