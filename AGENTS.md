@@ -35,8 +35,9 @@
 │   ├── auth/                # Login, session, profile, shared session/role middleware
 │   ├── register/           # Registration (JSON) + registration email composition/sends
 │   ├── admin/              # Member administration (list/view/edit/verify/role)
+│   ├── attendance/         # Attendance: a member logs a dojo visit, an admin confirms or rejects it
 │   ├── mailer/              # Email seam: Resend (prod), LogMailer (dev), noop (disabled)
-│   ├── types/              # Shared bun models: User, Audit, Ranks, parse helpers
+│   ├── types/              # Shared bun models: User, Audit, Attendance, Ranks, parse helpers
 │   ├── database/           # DB connection + query logging hook
 │   ├── middleware/          # XCFBypass, AccessLog, RateLimit (httprate, CF-aware IP key)
 │   ├── turnstile/           # Cloudflare Turnstile verifier (shared by register + login)
@@ -70,6 +71,12 @@
 | PUT | `/v1/admin/users/:id` | XCFBypass + session + role>=2 | Edit a member's profile (same whitelist as self-profile; role absent) |
 | POST | `/v1/admin/users/:id/verify` | XCFBypass + session + role>=2 | Verify a member (new -> user); no session invalidation |
 | PUT | `/v1/admin/users/:id/role` | XCFBypass + session + role>=3 | Set a member's role (superuser only; atomic last-superuser guard) |
+| POST | `/v1/attendance` | XCFBypass + session + role>=1 + 10/min per user | Log attendance: dojo + instructor + optional lat/lng pair -> `pending` row; 409 when the same member logged the same dojo in the last 10 minutes (a rejected row does not block). Two-step flow, `prd/attendance.prd` |
+| GET | `/v1/attendance/me` | XCFBypass + session + role>=1 | Own attendance, newest first, paginated; coordinates are never returned |
+| GET | `/v1/attendance/instructors` | XCFBypass + session + role>=1 | Instructor roster for the log dialog from the `instructors` table (seeded/edited by SQL, migration 000013): `{"all": [names with dojo ''], "instructors": {dojo: [names]}}`, lists sorted; dojo `''` = teaches at every dojo; dojos without rows are omitted |
+| GET | `/v1/admin/attendance` | XCFBypass + session + role>=2 | All attendance, paginated; filters `dojo`, `q` (member name), `status`, `from`/`to` (`YYYY-MM-DD`, inclusive days in Asia/Jakarta) |
+| PUT | `/v1/admin/attendance/:id/confirm` | XCFBypass + session + role>=2 | Confirm a pending row (404 unknown, 409 already decided); audited `attendance_confirmed:id=N` |
+| PUT | `/v1/admin/attendance/:id/reject` | XCFBypass + session + role>=2 | Reject a pending row (same rules); audited `attendance_rejected:id=N` |
 | GET | `/health` | None (before XCFBypass) | Liveness probe |
 
 ## Authorization Model
@@ -163,7 +170,7 @@ Viper merges: env vars (`TENKEI_` prefix) > `config.yaml` > compiled defaults. `
 | `TENKEI_SERVER_TURNSTILE_ENABLED` | `true` | Toggle Turnstile verification |
 | `TENKEI_SERVER_READ_HEADER_TIMEOUT` | `5s` | Prevent Slowloris attacks |
 | `TENKEI_SERVER_LOG_LEVEL` | `info` | zerolog global level (debug logs every SQL statement) |
-| `TENKEI_SERVER_VERSION` | `0.4.0-20261113` | Reported in startup log. Bump on every change — see AI Rule 9. |
+| `TENKEI_SERVER_VERSION` | `0.5.0-20261126` | Reported in startup log. Bump on every change — see AI Rule 9. |
 | `TENKEI_RESEND_API_KEY` | — | Resend API key. **Required in production when the mailer is enabled** — the app refuses to start without it (silent no-mail production is worse). Absent + non-production → LogMailer (emails render to logs). |
 | `TENKEI_MAILER_ENABLED` | `true` | Toggle registration emails without touching the API key secret (incident kill-switch). |
 | `TENKEI_MAILER_FROM` | `Tenkei <no-reply@tenkeiaikidojo.org>` | From address for all emails. |
